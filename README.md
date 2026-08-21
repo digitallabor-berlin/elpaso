@@ -57,8 +57,8 @@ Concretely:
   HTTPS app links.
 - DCQL-driven matching against both credential formats.
 - **W3C Digital Credentials API** — registers a credential provider so stored
-  credentials appear in the Android system credential picker, with a bundled matcher
-  binary (`dcapi_matcher.wasm`).
+  credentials appear in the Android system credential picker, using a matcher built
+  in-house from CMWallet's reference C implementation (`openid4vp1_0.wasm`).
 - **`transaction_data` flows** — payment, PaSO SCA, QES, and generic. The SHA-256
   binding is written into the SD-JWT Key Binding JWT, and into the mDoc
   `DeviceAuthentication` payload.
@@ -301,7 +301,8 @@ app/src/main/java/dev/digitallabor/elpaso/wallet/
 └── util/                   B64u, JoseEcdsa helpers
 ```
 
-Assets: `dcapi_matcher.wasm` (DC API presentation matcher binary),
+Assets: `openid4vp1_0.wasm` (DC API presentation matcher, built from CMWallet's
+reference C source — see `matcher/` and run `bash scripts/build-matcher.sh`),
 `dc_issuance_matcher.wasm` (DC API issuance/creation-options matcher, vendored from
 CMWallet's `provision_hardcoded.wasm`; source is CMWallet `matcher/issuance/provision.c`),
 `trusted_issuers.json`, `trusted_verifiers.json`.

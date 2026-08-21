@@ -28,6 +28,21 @@ to extend.
 - **The version counter auto-bumps.** `app/build.gradle.kts` increments
   `app/version.properties` on any `assemble`/`bundle`/`install` task and writes the
   file back to disk. Commit the bumped file like any other source change.
+- **The DC API matcher is a committed binary with a container build.**
+  `app/src/main/assets/openid4vp1_0.wasm` is built from vendored CMWallet C sources in
+  `matcher/` by `bash scripts/build-matcher.sh`, which needs **Podman** (or `docker` via
+  `MATCHER_ENGINE`). `--verify` rebuilds and fails if the committed binary, a fresh
+  build, and `matcher/PROVENANCE` disagree. Never edit `matcher/upstream/` — local
+  deltas are patch files in `matcher/patches/`, and the build refuses to run if one
+  does not apply.
+- **Credman allowlists the matcher's wasm exports** to `memory`, `_start` and `main`.
+  Anything else throws `IllegalArgumentException: Unknown export` at request time and
+  the wallet silently vanishes from the system picker. `matcher/strip_exports.py`
+  enforces this and the build asserts the result.
+- **`androidx.credentials.registry` must stay at 1.0.0-alpha05 or newer.** alpha04's
+  `OpenId4VpRegistry` emits no `supported_protocols` key; the matcher iterates that
+  array, so on alpha04 it processes zero requests and nothing ever matches. That
+  failure is invisible — no crash, no log, just an absent wallet.
 
 ## Cross-cutting architecture
 
@@ -50,6 +65,12 @@ to extend.
   registration" flag: `DcRegistrySync` registers unconditionally, and
   `DcIssuanceRegistrySync` keys only off `developerMode` (which selects whether the
   creation-options matcher gets an issuer allowlist).
+- **`DcRegistrySync` registers the stock blob with a non-stock matcher.** The credential
+  payload is whatever `OpenId4VpRegistry` produces — built by `DcRegistryBlobBuilder`,
+  its bytes lifted and re-paired in `CustomMatcherRegistry` with the wasm we build from
+  `matcher/`. Nothing about that binary framing is ours, so do not hand-roll it. Read
+  `matcher/UPSTREAM.md` before touching the C, and `scripts/verify-registry-blob.py`
+  checks a blob pulled off a device against exactly the keys `dcql.c` walks.
 
 ## Credential protocols (OpenID4VP / OpenID4VCI)
 
