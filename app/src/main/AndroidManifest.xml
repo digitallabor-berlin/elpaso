@@ -117,5 +117,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- DC API *issuance* entry point: launched when the user picks "Save to El Paso"
+             from the system credential-creation sheet (a `navigator.credentials.create()`
+             call carrying an OpenID4VCI offer). Same isolation rationale as the
+             presentation activity above. -->
+        <activity
+            android:name=".dcapi.DcIssuanceActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.ElPaso">
+            <intent-filter>
+                <action android:name="androidx.credentials.registry.provider.action.CREATE_CREDENTIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
