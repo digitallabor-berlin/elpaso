@@ -14,7 +14,19 @@
 
 Every task's requirements implicitly include this section.
 
-- **Upstream pin:** CMWallet commit `9407802`, sources at `/Users/senexi/dev/eudiw/CMWallet/matcher/`.
+- **Upstream pin:** CMWallet commit `769402d`, sources at `/Users/senexi/dev/eudiw/CMWallet/matcher/`.
+
+  > **Re-pinned during execution (2026-08-21).** This plan was authored against `9407802`
+  > ("Update PNV icon"), but upstream had already advanced one commit to `769402d` ("Fix
+  > matcher for combined presentation with payment transaction"). The entire `matcher/`
+  > delta is 3 lines in `openid4vp1_0.c::report_matched_credential`: a `paymentEntryMatched`
+  > flag replaces a `break` that considered only the first transaction credential id, so a
+  > plain verification entry is still emitted for credentials that are not the payment
+  > target. Re-pinned rather than frozen for three reasons: it is a bug fix in the exact
+  > payment path Task 4 extends; it does not touch Task 4's patch site (the
+  > `transaction_data_type` chain in `process_request`), so the patches are unaffected; and
+  > CMWallet's shipped `openid4vp1_0.wasm` was rebuilt by `769402d`, so Task 2's surface
+  > diff now compares against a binary built from the source we actually vendored.
 - **Toolchain pin:** wasi-sdk `33.0`. Never a `-rc` release.
 - **Wasm export surface must be exactly** `{memory, _start, main}`. Anything else causes `IllegalArgumentException: Unknown export` at request time and the wallet silently disappears from the system picker.
 - **Wasm import surface must equal** CMWallet's shipped `openid4vp1_0.wasm` — modules `credman`, `credman_v2`, `credman_v5`, `wasi_snapshot_preview1`.
@@ -92,7 +104,7 @@ Every task's requirements implicitly include this section.
 cd /Users/senexi/dev/eudiw/CMWallet && git rev-parse HEAD && git status --short | head
 ```
 
-Expected: `9407802…` and a clean-enough tree. If HEAD differs, **stop and report** — the plan's pin is wrong and every hash downstream changes.
+Expected: `769402d…` and a clean-enough tree. If HEAD differs, **stop and report** — the plan's pin is wrong and every hash downstream changes. (One untracked `test.json` at the CMWallet repo root is known and harmless: it is outside `matcher/`, so it does not affect the `rsync` copy or the `diff -r` verbatim check.)
 
 - [ ] **Step 2: Copy the tree, excluding `pnv/` and macOS cruft**
 
@@ -124,7 +136,7 @@ Expected: `VERBATIM_OK`. Any diff means the copy is wrong; fix before continuing
 ## What this is
 
 `upstream/` is a byte-identical copy of the `matcher/` directory from CMWallet
-(https://github.com/digitalcredentialsdev/CMWallet) at commit `9407802`, excluding
+(https://github.com/digitalcredentialsdev/CMWallet) at commit `769402d`, excluding
 `pnv/` (the person-not-verified variant, which this wallet does not use) and
 `.DS_Store`/`.gitignore`.
 
@@ -185,7 +197,7 @@ The artifact hash is deliberately absent here; Task 3 adds it once an artifact e
 # Regenerate and verify with: bash scripts/build-matcher.sh --verify
 
 upstream_repo    = https://github.com/digitalcredentialsdev/CMWallet
-upstream_commit  = 9407802
+upstream_commit  = 769402d
 upstream_subdir  = matcher/
 upstream_excludes= pnv/ .DS_Store .gitignore
 patches          = 0001-paso-sca-payment.patch 0002-paso-test-case.patch
@@ -199,7 +211,7 @@ export_allowlist = memory _start main
 ```bash
 cd /Users/senexi/dev/eudiw/elpaso
 git add matcher/upstream matcher/UPSTREAM.md matcher/PROVENANCE
-git commit -m "chore(matcher): vendor CMWallet matcher sources at 9407802
+git commit -m "chore(matcher): vendor CMWallet matcher sources at 769402d
 
 Verbatim copy of CMWallet matcher/ minus pnv/. Local deltas will live in
 patches/ so git diff against upstream stays equal to the patch set."
@@ -2019,7 +2031,7 @@ Summarise, with evidence: unit-test counts, `assembleRelease` result, the blob v
 
 **Where to stop and ask rather than improvise:**
 
-- Upstream HEAD is not `9407802` (Task 1, Step 1).
+- Upstream HEAD is not `769402d` (Task 1, Step 1).
 - Upstream's shipped wasm exports something outside `{memory, _start, main}` (Task 2, Step 2).
 - `make test` fails on *pristine* upstream (Task 2, Step 8).
 - `SdJwtClaim`/`MdocField` cannot be constructed on the JVM (Task 6, Step 4).

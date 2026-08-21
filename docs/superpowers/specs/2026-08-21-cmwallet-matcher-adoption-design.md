@@ -144,7 +144,7 @@ matcher/
   Dockerfile             toolchain image; no host toolchain required
   build.sh               runs inside container: patch -> compile -> test -> strip -> hash
   strip_exports.py       wasm export-section filter and assertion
-  upstream/              CMWallet matcher sources, byte-identical, @ 9407802
+  upstream/              CMWallet matcher sources, byte-identical, @ 769402d
   patches/               local deltas, applied at build time
   UPSTREAM.md            provenance and delta rationale, in prose
   PROVENANCE             machine-readable: upstream SHA, wasi-sdk version, output sha256
@@ -240,7 +240,7 @@ place it beside `type`.
 and its registration in `test_runner.cc`, modelled on `TC32_ExtractPaymentSca1`. Code
 delta and its test travel together and are both checked at build time.
 
-**Sync policy.** `PROVENANCE` records the CMWallet remote, commit `9407802`, the vendored
+**Sync policy.** `PROVENANCE` records the CMWallet remote, commit `769402d`, the vendored
 file list, wasi-sdk `33.0`, and the output sha256. Re-vendoring is a deliberate committed
 act with its own diff, never an implicit `git pull` of a sibling checkout.
 
