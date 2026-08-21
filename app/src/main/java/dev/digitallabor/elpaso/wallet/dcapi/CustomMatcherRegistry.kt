@@ -3,14 +3,14 @@ package dev.digitallabor.elpaso.wallet.dcapi
 import androidx.credentials.registry.provider.digitalcredentials.DigitalCredentialRegistry
 
 /**
- * `RegisterCredentialsRequest` carrying our custom DC API matcher WASM and a JSON
- * credentials payload (see [MatcherPackageBuilder]).
+ * `RegisterCredentialsRequest` pairing the stock registry blob with our own matcher WASM.
  *
- * This replaces `OpenId4VpRegistry`, whose bundled matcher doesn't handle OpenID4VP
- * `transaction_data` correctly. The platform runs [matcherWasm] in its sandboxed
- * interpreter on every incoming DC API request; the matcher reads [credentialsJson]
- * via `ReadCredentialsBuffer` and emits per-credential entries that the system selector
- * surfaces.
+ * `OpenId4VpRegistry` is `final` and accepts no matcher parameter, so it cannot be
+ * subclassed to inject ours. It does extend `DigitalCredentialRegistry`, though, so its
+ * `credentials` bytes can be lifted and re-paired here with the binary we build from
+ * `matcher/`. The platform runs [matcherWasm] in its sandboxed interpreter on every
+ * incoming DC API request; the matcher reads [credentialsJson] via
+ * `ReadCredentialsBuffer` and emits the entries the system selector surfaces.
  */
 internal class CustomMatcherRegistry(
     id: String,
