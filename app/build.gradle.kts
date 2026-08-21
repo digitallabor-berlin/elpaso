@@ -134,6 +134,9 @@ dependencies {
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.androidx.credentials.registry.provider)
     implementation(libs.androidx.credentials.registry.provider.play.services)
+    implementation(libs.androidx.credentials.registry.digitalcredentials.mdoc)
+    implementation(libs.androidx.credentials.registry.digitalcredentials.sdjwtvc)
+    implementation(libs.androidx.credentials.registry.digitalcredentials.openid)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

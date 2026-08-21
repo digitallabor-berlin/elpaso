@@ -20,8 +20,8 @@ navigationCompose = "2.8.5"
 biometric = "1.2.0-alpha05"
 browser = "1.8.0"
 camerax = "1.4.1"
-credentials = "1.6.0-rc01"
-credentialsRegistry = "1.0.0-alpha04"
+credentials = "1.7.0-alpha03"
+credentialsRegistry = "1.0.0-alpha05"
 datastore = "1.1.2"
 work = "2.10.0"
 
@@ -106,6 +106,15 @@ androidx-credentials-play-services-auth = { module = "androidx.credentials:crede
 # credentials match a verifier's OpenID4VP request without invoking the wallet.
 androidx-credentials-registry-provider = { module = "androidx.credentials.registry:registry-provider", version.ref = "credentialsRegistry" }
 androidx-credentials-registry-provider-play-services = { module = "androidx.credentials.registry:registry-provider-play-services", version.ref = "credentialsRegistry" }
+# Blob serialisers for the stock Digital Credentials registry format. The vendored
+# CMWallet matcher reads exactly this layout (4-byte little-endian JSON offset, icon
+# bytes, then JSON) — matcher/upstream/index.md names these classes as its source of
+# truth, so we let them build the bytes instead of hand-rolling the format.
+# alpha05 is a hard floor: alpha04 emits no `supported_protocols` key, and without it
+# the matcher's protocol loop never runs and nothing matches.
+androidx-credentials-registry-digitalcredentials-mdoc = { module = "androidx.credentials.registry:registry-digitalcredentials-mdoc", version.ref = "credentialsRegistry" }
+androidx-credentials-registry-digitalcredentials-sdjwtvc = { module = "androidx.credentials.registry:registry-digitalcredentials-sdjwtvc", version.ref = "credentialsRegistry" }
+androidx-credentials-registry-digitalcredentials-openid = { module = "androidx.credentials.registry:registry-digitalcredentials-openid", version.ref = "credentialsRegistry" }
 
 # Room + SQLCipher
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
