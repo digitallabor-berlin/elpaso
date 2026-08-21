@@ -72,6 +72,10 @@ fun WalletAppRoot(
     onDcApiResult: ((responseJson: String) -> Unit)? = null,
     onDcApiCancel: (() -> Unit)? = null,
     onDcApiError: ((message: String) -> Unit)? = null,
+    // Issuance returns a fixed acknowledgement rather than a computed response document,
+    // so it gets its own no-argument callback instead of reusing onDcApiResult. Keeping the
+    // ack in DcIssuanceActivity avoids a ui/ -> dcapi/ import.
+    onDcApiIssuanceDone: (() -> Unit)? = null,
 ) {
     var current by remember { mutableStateOf(startRoute) }
     val router: DeepLinkRouter = koinInject()
@@ -163,8 +167,16 @@ fun WalletAppRoot(
                         AddOfferFlow(
                             modifier = Modifier.padding(inner),
                             incomingOfferUri = r.offerUri,
-                            onDone = { current = Route.Home },
-                            onCancel = { current = Route.Home },
+                            onDone = {
+                                if (onDcApiIssuanceDone != null) {
+                                    onDcApiIssuanceDone()
+                                } else {
+                                    current = Route.Home
+                                }
+                            },
+                            onCancel = {
+                                if (onDcApiCancel != null) onDcApiCancel() else current = Route.Home
+                            },
                         )
                     }
 
