@@ -41,6 +41,8 @@ user consent runs the existing OpenID4VCI issuance flow to completion.
 4. The stored credential immediately becomes presentable — the presentation registry
    refreshes without manual action.
 5. Cancelling returns a cancellation exception, not a success or a hang.
+6. When the wallet is locked, the DC API issuance flow shows the lock screen first — the
+   caller cannot drive issuance past the app lock.
 
 ## 2. Reference implementation
 
@@ -241,27 +243,72 @@ val json = request.callingRequest.credentialData
 The calling origin (`request.callingAppInfo`) is read for logging only; the pre-authorized
 code flow has no origin-binding requirement.
 
-On `Rejected`, finish with an exception **before** showing any UI. Otherwise:
+On `Rejected`, finish with an exception **before** showing any UI. Otherwise it enters the
+normal app shell at the existing offer-consent route:
 
 ```kotlin
 setContent {
     ElPasoTheme {
-        AddOfferFlow(
-            incomingOfferUri = offer.uri,
-            onDone = { finishWithSuccess() },
-            onCancel = { finishWithCancellation() },
+        WalletAppRoot(
+            startRoute = Route.OfferConsent(offer.uri),
+            onDcApiIssuanceDone = { finishWithSuccess() },
+            onDcApiCancel = { finishWithCancellation() },
         )
     }
 }
 ```
 
-Reusing `AddOfferFlow` verbatim is safe, verified by reading it:
+**This must go through `WalletAppRoot`, not `AddOfferFlow` directly.** `WalletAppRoot` owns
+`AppLockManager` and short-circuits to `LockScreen` when the wallet is locked:
+
+```kotlin
+if (locked) { LockScreen(modifier = Modifier.padding(inner)); return@Scaffold }
+```
+
+Hosting `AddOfferFlow` directly would let a DC API caller drive issuance **past the app
+lock** — a security regression. Routing through `WalletAppRoot` also matches
+`DcPresentationActivity`, which enters at `Route.Present` the same way.
+
+Reusing the `Route.OfferConsent` screen is otherwise safe, verified by reading
+`AddOfferFlow`:
 
 - `onDone()` fires only from `State.Done`, after `client.reset()` — it means "stored".
 - `DeepLinkRouter` is injected but only used on the QR-scanner path, which is unreachable
   when `incomingOfferUri != null`.
 - The tx_code field, configuration selection, trust warning and error modal all already
   exist and need no changes.
+
+### 5.4a `ui/WalletApp.kt` (modified)
+
+The `Route.OfferConsent` branch currently hardcodes both callbacks and ignores the DC API
+ones:
+
+```kotlin
+is Route.OfferConsent -> {
+    AddOfferFlow(
+        modifier = Modifier.padding(inner),
+        incomingOfferUri = r.offerUri,
+        onDone = { current = Route.Home },
+        onCancel = { current = Route.Home },
+    )
+}
+```
+
+Two changes, mirroring how `Route.Present` already threads its DC API callbacks:
+
+1. Add one parameter to `WalletAppRoot`: `onDcApiIssuanceDone: (() -> Unit)? = null`.
+2. Thread both callbacks in the branch:
+
+```kotlin
+onDone = { if (onDcApiIssuanceDone != null) onDcApiIssuanceDone() else current = Route.Home },
+onCancel = { if (onDcApiCancel != null) onDcApiCancel() else current = Route.Home },
+```
+
+A dedicated `onDcApiIssuanceDone` is used rather than reusing `onDcApiResult` because
+issuance returns a *fixed acknowledgement*, not a computed response document. Keeping the
+ack in `DcIssuanceActivity` avoids a `ui/` → `dcapi/` import and leaves the presentation
+path untouched. In-app deep-link issuance is unaffected: both callbacks are null there, so
+the branch still navigates to `Route.Home`.
 
 Responses:
 
@@ -289,10 +336,12 @@ Responses:
 
 ### 5.6 What does not change
 
-`Route` is untouched — no new member, no `depth()` or `parent()` entry — because this
-activity lives outside `WalletApp`'s state machine, exactly like `DcPresentationActivity`.
-Post-issuance the existing pipeline stores the credential and `DcRegistrySync`'s
-`repository.observeAll()` listener refreshes the presentation registry on its own.
+`Route` is untouched — no new member, no `depth()` or `parent()` entry — because issuance
+reuses the existing `Route.OfferConsent`. `IssuanceClient`, `AddOfferFlow`, `DcRegistrySync`
+and every dependency version are also unchanged; `WalletApp.kt` gains one optional parameter
+and two threaded callbacks (§5.4a) and nothing else. Post-issuance the existing pipeline
+stores the credential and `DcRegistrySync`'s `repository.observeAll()` listener refreshes
+the presentation registry on its own.
 
 ## 6. Data flow
 
@@ -302,6 +351,7 @@ browser: navigator.credentials.create({ digital: { requests: [{ protocol: "openi
   → matcher emits one entry ("Save to El Paso") if capabilities allows the issuer
   → user picks it → CREATE_CREDENTIAL intent → DcIssuanceActivity
   → DcIssuanceRequest maps offer JSON → openid-credential-offer:// URI  (rejects non-pre-auth here)
+  → WalletAppRoot(Route.OfferConsent)  [LockScreen first if the wallet is locked]
   → AddOfferFlow → IssuanceClient.resolveOffer → Issuer.make (fetches issuer metadata)
   → consent (+ tx_code) → acceptOffer → completeWithPreAuthorizedCode → credential stored
   → DcRegistrySync re-registers presentation credentials
