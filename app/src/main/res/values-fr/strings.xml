@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">El Paso Wallet</string>
+
+    <!-- Accueil -->
+    <string name="home_empty_title">Aucun justificatif pour le moment</string>
+    <string name="home_empty_subtitle">Scannez une offre pour ajouter votre premier justificatif</string>
+    <string name="home_add">Ajouter</string>
+    <string name="home_fab_cd">Ajouter au portefeuille</string>
+    <string name="home_settings_cd">Paramètres</string>
+
+    <!-- Navigation -->
+
+    <!-- Ajout -->
+    <string name="add_scan_title">Scanner l\'offre</string>
+    <string name="add_scan_hint">Pointez la caméra vers le code QR de l\'émetteur</string>
+    <string name="present_scan_title">Scanner le QR du vérificateur</string>
+    <string name="present_scan_hint">Pointez la caméra vers le code QR du vérificateur</string>
+    <string name="present_scan_not_a_presentation">Ce code QR n\'est pas une demande de présentation.</string>
+    <string name="add_consent_title">Ajouter un justificatif</string>
+    <string name="add_consent_continue">Continuer</string>
+    <string name="add_consent_cancel">Annuler</string>
+    <string name="add_tx_code_label">Code de transaction</string>
+    <string name="add_tx_code_hint">Saisissez le code fourni par l\'émetteur</string>
+    <string name="add_unknown_issuer">Cet émetteur ne figure pas sur la liste de confiance.</string>
+
+    <!-- Flux d\'ajout d\'offre -->
+    <string name="addoffer_loading">Chargement de l\'offre…</string>
+    <string name="addoffer_resolving">Résolution de l\'offre de justificatif…</string>
+    <string name="addoffer_issuer">Émetteur : %1$s</string>
+    <string name="addoffer_browser_continue">Poursuite de l\'autorisation dans le navigateur…</string>
+    <string name="addoffer_issuing">Émission du justificatif…</string>
+    <string name="addoffer_error_prefix">Erreur : %1$s</string>
+    <string name="addoffer_failed_generic">Échec de l\'émission</string>
+    <string name="addoffer_done">Terminé</string>
+
+    <!-- Communs -->
+    <string name="error_show_details">Détails techniques</string>
+    <string name="error_hide_details">Masquer les détails</string>
+    <string name="error_title_default">Une erreur s\'est produite</string>
+    <string name="error_ok">OK</string>
+
+    <!-- Détail -->
+    <string name="detail_use">Utiliser</string>
+    <string name="detail_details">Détails</string>
+    <string name="detail_remove">Supprimer</string>
+    <string name="detail_loading">Chargement…</string>
+    <string name="detail_claims_empty">Aucun détail d\'attribut disponible pour ce justificatif.</string>
+    <string name="detail_technical_details">Détails techniques</string>
+    <string name="detail_back_cd">Retour</string>
+
+    <!-- Présentation -->
+    <string name="present_title">Partager le justificatif</string>
+    <string name="present_title_payment">Autoriser le paiement</string>
+    <string name="present_authorize">Partager</string>
+    <string name="present_authorize_payment">Autoriser le paiement</string>
+    <string name="present_authorize_pay">Payer</string>
+    <string name="present_authorize_sign">Signer</string>
+    <string name="present_cancel">Annuler</string>
+    <string name="present_verifier">Vérificateur</string>
+    <string name="present_fields">Champs demandés</string>
+    <string name="present_unknown_verifier">Vérificateur non approuvé</string>
+    <string name="present_no_match">Aucun justificatif correspondant dans votre portefeuille</string>
+    <string name="present_loading">Chargement…</string>
+    <string name="present_error_prefix">Erreur : %1$s</string>
+    <string name="present_failed_generic">Échec de la présentation</string>
+    <string name="present_verifier_trusted">Vérificateur de confiance</string>
+    <string name="present_pick_for_each_query">Choisissez un justificatif pour chaque groupe de champs demandé</string>
+    <string name="paso_request_must_be_signed">Les demandes de paiement doivent être signées par le vérificateur.</string>
+    <string name="paso_multiple_entries_not_supported">Les demandes de paiement multi-justificatifs ne sont pas prises en charge.</string>
+
+    <!-- Données de transaction (écran de consentement) -->
+    <string name="tx_data_payment_heading">Vous êtes sur le point d\'autoriser un paiement</string>
+    <string name="tx_data_amount_missing">Montant non indiqué</string>
+    <string name="tx_data_payee">à %1$s</string>
+    <string name="tx_data_account">Compte : %1$s</string>
+    <string name="tx_data_reference">Réf. : %1$s</string>
+    <string name="tx_data_payee_id">ID : %1$s</string>
+    <string name="tx_data_qes_heading">Acceptation de signature (QES)</string>
+    <string name="tx_data_qes_format">Format : %1$s</string>
+    <plurals name="tx_data_qes_document_count">
+        <item quantity="one">%1$d document à signer</item>
+        <item quantity="other">%1$d documents à signer</item>
+    </plurals>
+    <string name="tx_data_generic_heading">Transaction (%1$s)</string>
+    <string name="tx_data_invalid_heading">Données de transaction non valides</string>
+    <string name="tx_data_invalid_body">Les informations de paiement requises sont absentes ou mal formées.</string>
+    <string name="tx_data_dynamic_default_heading">Confirmer la transaction</string>
+
+    <!-- Onglet Activité (espace réservé) -->
+
+    <!-- Scanner QR -->
+    <string name="qr_permission_required">L\'autorisation d\'accès à la caméra est requise pour scanner les codes QR.</string>
+
+    <!-- Paramètres -->
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_dc_api">Fournisseur de justificatifs système</string>
+    <string name="settings_dc_api_summary">Autoriser les sites web et applications à demander des justificatifs depuis ce portefeuille via Android</string>
+    <string name="settings_dc_api_enable">Ouvrir les paramètres système</string>
+    <string name="settings_trusted_issuers">Émetteurs de confiance</string>
+    <string name="settings_trusted_verifiers">Vérificateurs de confiance</string>
+    <string name="settings_appearance">Apparence</string>
+    <string name="settings_appearance_summary">Choisissez l\'apparence du portefeuille. « Système » suit le réglage de votre appareil.</string>
+    <string name="settings_theme_system">Système</string>
+    <string name="settings_theme_light">Clair</string>
+    <string name="settings_theme_dark">Sombre</string>
+    <string name="settings_language">Langue</string>
+    <string name="settings_language_summary">Choisissez la langue du portefeuille. « Système » suit le réglage de votre appareil.</string>
+    <string name="settings_language_system">Système</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_german">Deutsch</string>
+    <string name="settings_language_french">Français</string>
+    <string name="settings_developer_section">Développeur</string>
+    <string name="settings_developer_mode">Mode développeur</string>
+    <string name="settings_developer_mode_summary">Ignore les listes d\'émetteurs et de vérificateurs de confiance. À n\'activer qu\'à des fins de test — tout émetteur et tout vérificateur seront acceptés.</string>
+    <string name="settings_metadata_cache_section">Cache des métadonnées d\'émetteur</string>
+    <string name="settings_metadata_cache_summary">Limite, côté portefeuille, de la durée de conservation sur cet appareil des métadonnées de justificatif vérifiées (types de données de transaction, libellés de claims, indications de sécurité). Si l\'option est désactivée, le portefeuille effectue une nouvelle récupération à chaque fois qu\'il a besoin de métadonnées et supprime les entrées existantes.</string>
+    <string name="settings_metadata_cache_enabled">Mettre en cache les métadonnées d\'émetteur</string>
+    <string name="settings_metadata_cache_ttl_label">Durée du cache</string>
+    <string name="settings_metadata_cache_ttl_jwt">Jusqu\'à l\'expiration indiquée par l\'émetteur</string>
+    <string name="settings_metadata_cache_ttl_hour">1 heure</string>
+    <string name="settings_metadata_cache_ttl_day">1 jour</string>
+    <string name="settings_metadata_cache_ttl_week">1 semaine</string>
+    <string name="settings_metadata_cache_clear">Effacer les métadonnées en cache</string>
+
+    <!-- Verrouillage -->
+    <string name="lock_title">Déverrouiller le portefeuille</string>
+    <string name="lock_subtitle">Authentifiez-vous pour consulter vos justificatifs</string>
+    <string name="lock_button">Déverrouiller</string>
+    <string name="lock_no_credentials">Configurez un verrouillage d\'écran (PIN, schéma, mot de passe ou biométrie) dans les paramètres de l\'appareil pour utiliser le portefeuille.</string>
+    <string name="lock_open_settings">Ouvrir les paramètres</string>
+    <string name="biometric_prompt_title">S\'authentifier</string>
+    <string name="biometric_prompt_subtitle">Confirmez votre identité pour autoriser</string>
+    <string name="biometric_prompt_negative">Annuler</string>
+
+    <!-- Banque -->
+
+
+
+
+
+
+
+
+    <!-- Détail de transaction -->
+
+    <!-- Chat IA -->
+
+    <!-- Carte de configuration du backend cloud -->
+
+    <!-- Puce d\'appel d\'outil (backend cloud uniquement) -->
+
+    <!-- Cartes enrichies (backend cloud uniquement) -->
+
+    <!-- Cartes enrichies du conseiller IA (analyzeFinances) -->
+
+
+
+
+
+    <!-- Paramètres IA -->
+
+    <!-- Noms d\'affichage des modèles IA — apparaissent dans le sélecteur Paramètres et la carte de configuration du chat. -->
+
+    <!-- Types de transaction — traductions naturelles en français des termes bancaires allemands.
+         L\'énumération de domaine sous-jacente reste neutre du point de vue de la langue. -->
+
+    <!-- Flux Envoyer de l\'argent -->
+    <!-- Envoyer de l\'argent : étape de vérification du bénéficiaire en cours de flux -->
+    <!-- Envoyer de l\'argent : badge de résultat de la vérification du bénéficiaire à l\'étape Terminé -->
+
+    <!-- Envoyer de l\'argent : sélecteur de bénéficiaire connu -->
+
+    <!-- SendMoney + puces de résumé de virement (drapeau instantané, ligne du compte source) -->
+
+    <!-- Chat IA : carte de candidats findRecipients -->
+
+    <!-- Chat IA : carte de montant agrégé -->
+
+    <!-- Aperçu de connexion bancaire (liste tous les comptes d\'une même connexion HBCI) -->
+
+    <!-- Section À propos -->
+    <string name="settings_about">À propos</string>
+    <string name="settings_about_app_name">El Paso Wallet</string>
+    <string name="settings_about_publisher">digitallabor.berlin</string>
+    <string name="settings_about_copyright">© 2026</string>
+    <string name="settings_about_disclaimer">Avertissement : cette application est un projet de recherche. Elle ne reflète en aucune manière un développement de produit à venir.</string>
+    <string name="settings_about_version">Version %1$s (Build %2$d)</string>
+</resources>

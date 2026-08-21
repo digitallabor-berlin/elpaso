@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Lists the locales this app supports, so Android 13+ surfaces them in
+  System Settings → Apps → El Paso Wallet → Language. The in-app picker in
+  SettingsScreen mirrors the same set via AppCompatDelegate.setApplicationLocales,
+  which back-ports the behaviour to API 29+.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="de" />
+    <locale android:name="fr" />
+</locale-config>

@@ -1,0 +1,49 @@
+{
+  "nextId": 4,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Task 8: Rename to dev.digitallabor.elpaso.wallet",
+      "description": "Mechanical package/identity rename per plan Task 8. Clear caches; git mv source trees to dev/digitallabor/elpaso/wallet; sed com.eudipal.wallet -> dev.digitallabor.elpaso.wallet across kt/kts/xml/pro and README.md ONLY (docs/superpowers left verbatim per raised concern); rename EudipalApp->ElPasoApp, EudipalTheme->ElPasoTheme, Theme.Eudipal->Theme.ElPaso; DB_NAME eudipal.db->elpaso.db; namespace+applicationId; rootProject.name=elpaso-android; version 0.1.0 build 1; app_name/settings_about_app_name -> El Paso Wallet in all 3 locales. Do NOT touch deep-link schemes openid-credential-offer/haip/openid4vp/eudi-openid4vp. Gate: compileDebugKotlin BUILD SUCCESSFUL + 56 tests/2 failed (the 2 permanent TransactionDataTest NPEs) + grep -ri eudipal over app/ gradle/ settings.gradle.kts build.gradle.kts returns nothing.",
+      "status": "in_progress",
+      "activeForm": "Renaming to dev.digitallabor.elpaso.wallet",
+      "metadata": {},
+      "blocks": [
+        "2"
+      ],
+      "blockedBy": [],
+      "createdAt": 1787304833779,
+      "updatedAt": 1787304841860
+    },
+    {
+      "id": "2",
+      "subject": "Task 9: Rewrite README and replace CLAUDE.md with AGENTS.md",
+      "description": "Per plan Task 9. Rewrite README.md leading with the privacy posture for a credential-only EUDI wallet (OpenID4VCI 1.0 issuance, OpenID4VP 1.0 presentation, SD-JWT VC + mso_mdoc, DC API); purge all FinTS/HBCI/bank/AI-chat/Gemma/LiteRT/Gemini/HF-token/cloud-consent content; add provenance line (hard fork of Eudipal Wallet 0.1.3). git rm CLAUDE.md and write harness-agnostic AGENTS.md carrying over: build quirks (no gradlew, 2 permanent TransactionDataTest failures, isReturnDefaultValues), cross-cutting architecture (FragmentActivity, 7-member Route sealed interface + single SettingsButton, 4 Koin modules in ElPasoApp.kt, SettingsRepository as sole source of truth), OpenID4VP/VCI 1.0 rule verbatim, presentation audit log note, trilingual localisation mechanics, M3 Expressive UI conventions, surviving gotchas. Drop AI-chat and banking-analytics sections. Verify with the two grep checks in Step 3.",
+      "status": "pending",
+      "activeForm": "Rewriting README and AGENTS.md",
+      "metadata": {},
+      "blocks": [
+        "3"
+      ],
+      "blockedBy": [
+        "1"
+      ],
+      "createdAt": 1787304833782,
+      "updatedAt": 1787304841862
+    },
+    {
+      "id": "3",
+      "subject": "Task 10: Release gates and device smoke test",
+      "description": "Per plan Task 10. Run gradle :app:lintDebug and sweep UnusedResources for strings the strip missed (delete from all 3 locales, re-run StringsParityTest). Run gradle :app:assembleRelease — the real R8 gate on Task 4's ProGuard edits; if R8 fails add back the narrowest keep rule and record which. Measure release APK size and compare against a scratch worktree at baseline commit 3522468 — report both numbers, do not assert an unmeasured reduction. Then installRelease and record pass/fail for the 10 device smoke tests (issuance, presentation, DC API, transaction data, deck reordering, language en/de/fr, lock, settings button, memory without largeHeap, Eudipal coexistence). Commit the verification record.",
+      "status": "pending",
+      "activeForm": "Running release gates and smoke tests",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [
+        "2"
+      ],
+      "createdAt": 1787304833784,
+      "updatedAt": 1787304841862
+    }
+  ]
+}

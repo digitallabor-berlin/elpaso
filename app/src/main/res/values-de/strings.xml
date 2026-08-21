@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">El Paso Wallet</string>
+
+    <!-- Home -->
+    <string name="home_empty_title">Noch keine Pässe</string>
+    <string name="home_empty_subtitle">Scanne ein Angebot, um deinen ersten Nachweis hinzuzufügen</string>
+    <string name="home_add">Hinzufügen</string>
+    <string name="home_fab_cd">Zur Wallet hinzufügen</string>
+    <string name="home_settings_cd">Einstellungen</string>
+
+    <!-- Nav -->
+
+    <!-- Add -->
+    <string name="add_scan_title">Angebot scannen</string>
+    <string name="add_scan_hint">Richte die Kamera auf den QR-Code des Ausstellers</string>
+    <string name="present_scan_title">Verifier-QR scannen</string>
+    <string name="present_scan_hint">Richte die Kamera auf den QR-Code des Verifiers</string>
+    <string name="present_scan_not_a_presentation">Dieser QR-Code ist keine Präsentationsanfrage.</string>
+    <string name="add_consent_title">Nachweis hinzufügen</string>
+    <string name="add_consent_continue">Weiter</string>
+    <string name="add_consent_cancel">Abbrechen</string>
+    <string name="add_tx_code_label">Transaktionscode</string>
+    <string name="add_tx_code_hint">Gib den vom Aussteller bereitgestellten Code ein</string>
+    <string name="add_unknown_issuer">Dieser Aussteller steht nicht auf der vertrauten Liste.</string>
+
+    <!-- Add-offer flow (war hardcoded) -->
+    <string name="addoffer_loading">Angebot wird geladen…</string>
+    <string name="addoffer_resolving">Angebot wird aufgelöst…</string>
+    <string name="addoffer_issuer">Aussteller: %1$s</string>
+    <string name="addoffer_browser_continue">Autorisierung wird im Browser fortgesetzt…</string>
+    <string name="addoffer_issuing">Nachweis wird ausgestellt…</string>
+    <string name="addoffer_error_prefix">Fehler: %1$s</string>
+    <string name="addoffer_done">Fertig</string>
+    <string name="addoffer_failed_generic">Ausstellung fehlgeschlagen</string>
+
+    <!-- Common -->
+    <string name="error_show_details">Technische Details</string>
+    <string name="error_hide_details">Details ausblenden</string>
+    <string name="error_title_default">Ein Fehler ist aufgetreten</string>
+    <string name="error_ok">OK</string>
+
+    <!-- Detail -->
+    <string name="detail_use">Verwenden</string>
+    <string name="detail_details">Details</string>
+    <string name="detail_remove">Entfernen</string>
+    <string name="detail_loading">Wird geladen…</string>
+    <string name="detail_claims_empty">Für diesen Nachweis sind keine Detailangaben verfügbar.</string>
+    <string name="detail_technical_details">Technische Details</string>
+    <string name="detail_back_cd">Zurück</string>
+
+    <!-- Present -->
+    <string name="present_title">Nachweis teilen</string>
+    <string name="present_title_payment">Zahlung freigeben</string>
+    <string name="present_authorize">Teilen</string>
+    <string name="present_authorize_payment">Zahlung autorisieren</string>
+    <string name="present_authorize_pay">Bezahlen</string>
+    <string name="present_authorize_sign">Signieren</string>
+    <string name="present_cancel">Abbrechen</string>
+    <string name="present_verifier">Verifier</string>
+    <string name="present_fields">Angefragte Felder</string>
+    <string name="present_unknown_verifier">Nicht vertrauter Verifier</string>
+    <string name="present_no_match">Kein passender Nachweis in deiner Wallet</string>
+    <string name="present_loading">Wird geladen…</string>
+    <string name="present_error_prefix">Fehler: %1$s</string>
+    <string name="present_failed_generic">Präsentation fehlgeschlagen</string>
+    <string name="present_verifier_trusted">Vertrauenswürdiger Verifier</string>
+    <string name="present_pick_for_each_query">Wähle für jede angefragte Feldgruppe einen Nachweis</string>
+    <string name="paso_request_must_be_signed">Zahlungsanfragen müssen vom Verifier signiert sein.</string>
+    <string name="paso_multiple_entries_not_supported">Mehrkonto-Zahlungsanfragen werden derzeit nicht unterstützt.</string>
+
+    <!-- Transaktionsdaten (Bestätigungsbildschirm) -->
+    <string name="tx_data_payment_heading">Du bist dabei, eine Zahlung zu autorisieren</string>
+    <string name="tx_data_amount_missing">Betrag nicht angegeben</string>
+    <string name="tx_data_payee">an %1$s</string>
+    <string name="tx_data_account">Konto: %1$s</string>
+    <string name="tx_data_reference">Verwendungszweck: %1$s</string>
+    <string name="tx_data_payee_id">ID: %1$s</string>
+    <string name="tx_data_qes_heading">Signaturbestätigung (QES)</string>
+    <string name="tx_data_qes_format">Format: %1$s</string>
+    <plurals name="tx_data_qes_document_count">
+        <item quantity="one">%1$d Dokument zu signieren</item>
+        <item quantity="other">%1$d Dokumente zu signieren</item>
+    </plurals>
+    <string name="tx_data_generic_heading">Transaktion (%1$s)</string>
+    <string name="tx_data_invalid_heading">Ungültige Transaktionsdaten</string>
+    <string name="tx_data_invalid_body">Erforderliche Zahlungsdaten fehlen oder sind fehlerhaft.</string>
+    <string name="tx_data_dynamic_default_heading">Transaktion bestätigen</string>
+
+    <!-- Activity-Tab Platzhalter -->
+
+    <!-- QR-Scanner -->
+    <string name="qr_permission_required">Kameraberechtigung wird benötigt, um QR-Codes zu scannen.</string>
+
+    <!-- Einstellungen -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_dc_api">System-Zugangsdaten-Provider</string>
+    <string name="settings_dc_api_summary">Erlaube Websites und Apps, Nachweise über Android aus dieser Wallet anzufragen</string>
+    <string name="settings_dc_api_enable">Systemeinstellungen öffnen</string>
+    <string name="settings_trusted_issuers">Vertraute Aussteller</string>
+    <string name="settings_trusted_verifiers">Vertraute Verifier</string>
+    <string name="settings_appearance">Darstellung</string>
+    <string name="settings_appearance_summary">Wähle das Erscheinungsbild der Wallet. „System\" folgt deiner Geräteeinstellung.</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Hell</string>
+    <string name="settings_theme_dark">Dunkel</string>
+    <string name="settings_language">Sprache</string>
+    <string name="settings_language_summary">Wähle die Sprache der Wallet. „System\" folgt deiner Geräteeinstellung.</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_german">Deutsch</string>
+    <string name="settings_language_french">Französisch</string>
+    <string name="settings_developer_section">Entwickler</string>
+    <string name="settings_developer_mode">Entwicklermodus</string>
+    <string name="settings_developer_mode_summary">Ignoriere die Listen vertrauter Aussteller und Verifier. Nur zum Testen aktivieren — jeder Aussteller und Verifier wird akzeptiert.</string>
+    <string name="settings_metadata_cache_section">Aussteller-Metadaten-Cache</string>
+    <string name="settings_metadata_cache_summary">Wallet-seitige Obergrenze, wie lange verifizierte Nachweis-Metadaten (Transaktionsdaten-Typen, Claim-Bezeichnungen, Sicherheitshinweise) auf diesem Gerät bleiben. Wenn deaktiviert, lädt das Wallet jedes Mal frisch und löscht vorhandene Einträge.</string>
+    <string name="settings_metadata_cache_enabled">Aussteller-Metadaten zwischenspeichern</string>
+    <string name="settings_metadata_cache_ttl_label">Cache-Dauer</string>
+    <string name="settings_metadata_cache_ttl_hour">1 Stunde</string>
+    <string name="settings_metadata_cache_ttl_day">1 Tag</string>
+    <string name="settings_metadata_cache_ttl_week">1 Woche</string>
+    <string name="settings_metadata_cache_ttl_jwt">Bis Aussteller-Ablauf</string>
+    <string name="settings_metadata_cache_clear">Zwischengespeicherte Metadaten löschen</string>
+
+    <!-- Sperre -->
+    <string name="lock_title">Wallet entsperren</string>
+    <string name="lock_subtitle">Authentifiziere dich, um deine Nachweise zu sehen</string>
+    <string name="lock_button">Entsperren</string>
+    <string name="lock_no_credentials">Richte in den Geräteeinstellungen eine Bildschirmsperre (PIN, Muster, Passwort oder Biometrie) ein, um die Wallet zu nutzen.</string>
+    <string name="lock_open_settings">Einstellungen öffnen</string>
+    <string name="biometric_prompt_title">Authentifizieren</string>
+    <string name="biometric_prompt_subtitle">Bestätige deine Identität zur Autorisierung</string>
+    <string name="biometric_prompt_negative">Abbrechen</string>
+
+    <!-- Banking -->
+
+
+
+
+
+
+
+
+    <!-- Buchungsdetails -->
+
+    <!-- KI-Chat -->
+
+    <!-- Cloud-Backend Einrichtungs-Karte -->
+
+    <!-- Werkzeug-Chip (nur Cloud-Backend) -->
+
+    <!-- Rich-Cards (nur Cloud-Backend) -->
+
+    <!-- KI-Berater Rich Cards (analyzeFinances Scopes) -->
+
+
+
+
+
+    <!-- KI-Einstellungen -->
+
+    <!-- KI-Modell-Bezeichnungen — Settings-Picker und Chat-Einrichtungskarte. -->
+
+    <!-- Buchungsarten — die kanonischen deutschen Bankbegriffe. -->
+
+    <!-- Geld-senden-Flow -->
+    <!-- Send Money: Verification of Payee mid-flight review step -->
+    <!-- Send Money: Verification of Payee outcome badge on the Done step -->
+
+    <!-- Geld senden: Empfängervorschläge -->
+
+    <!-- SendMoney + Transferzusammenfassung (Echtzeit-Flag, Quellkonto-Zeile) -->
+
+    <!-- KI-Chat: findRecipients Karte -->
+
+    <!-- KI-Chat: aggregierte Betragskarte -->
+
+    <!-- Banking-Verbindungsübersicht (listet alle Konten eines HBCI-Logins) -->
+
+    <!-- About section -->
+    <string name="settings_about">Über die App</string>
+    <string name="settings_about_app_name">El Paso Wallet</string>
+    <string name="settings_about_publisher">digitallabor.berlin</string>
+    <string name="settings_about_copyright">© 2026</string>
+    <string name="settings_about_disclaimer">Disclaimer: Diese App ist ein Forschungsprojekt. Sie spiegelt in keiner Weise eine kommende Produktentwicklung wider.</string>
+    <string name="settings_about_version">Version %1$s (Build %2$d)</string>
+</resources>

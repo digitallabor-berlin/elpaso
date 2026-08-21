@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "Replace with the actual EUDI dev/production verifier set before going live. SANs are X.509 SubjectAlternativeName dNSName entries, fingerprints are SHA-256 of DER-encoded leaf certs (lowercase hex).",
+  "verifiers": [
+    {
+      "id": "verifier.eudiw.dev",
+      "label": "EUDI Reference Verifier (dev)",
+      "x509_sans": ["verifier.eudiw.dev"],
+      "x5c_sha256_fingerprints": []
+    }
+  ]
+}

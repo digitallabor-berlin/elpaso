@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".ElPasoApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ElPaso"
+        tools:replace="android:allowBackup,android:fullBackupContent,android:dataExtractionRules"
+        tools:targetApi="34">
+
+        <!-- LiteRT-LM GPU delegate: declare the optional shared libs so the
+             OpenCL driver is resolvable from the app process on Android 7+.
+             `required="false"` means devices without OpenCL still install
+             the app; LiteRT-LM gracefully falls back to CPU there. -->
+        <uses-native-library
+            android:name="libvndksupport.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.ElPaso"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- OpenID4VCI credential offer -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="openid-credential-offer" />
+                <data android:scheme="haip" />
+            </intent-filter>
+
+            <!-- OpenID4VP presentation request -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="openid4vp" />
+                <data android:scheme="eudi-openid4vp" />
+            </intent-filter>
+
+            <!-- HTTPS app links: set host to the wallet's redirect domain for App Link verification.
+                 Replace `wallet.example.com` and add an assetlinks.json on the host before enabling. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="wallet.example.com" android:pathPrefix="/cb" />
+            </intent-filter>
+        </activity>
+
+        <!-- OAuth redirect for OpenID4VCI Authorization Code flow. -->
+        <activity
+            android:name=".issuance.AuthRedirectActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="elpaso" android:host="oauth" android:path="/callback" />
+            </intent-filter>
+        </activity>
+
+        <!-- Digital Credentials API (registry-based holder flow).
+             Credentials are pre-registered with the system via RegistryManager; the
+             platform's sandboxed WASM matcher selects a credential before invoking us.
+             This activity is the entry point after the user picks the wallet from the
+             system credential picker.
+
+             Launch mode is default (`standard`) and `taskAffinity` is empty so the
+             credential picker doesn't merge this into the main wallet task — the system
+             launches us via a PendingIntent and expects a clean, isolated activity.
+             `excludeFromRecents` keeps the consent screen out of the recents list. -->
+        <activity
+            android:name=".dcapi.DcPresentationActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.ElPaso">
+            <intent-filter>
+                <action android:name="androidx.credentials.registry.provider.action.GET_CREDENTIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

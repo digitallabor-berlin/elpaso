@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">El Paso Wallet</string>
+
+    <!-- Home -->
+    <string name="home_empty_title">No passes yet</string>
+    <string name="home_empty_subtitle">Scan an offer to add your first credential</string>
+    <string name="home_add">Add</string>
+    <string name="home_fab_cd">Add to wallet</string>
+    <string name="home_settings_cd">Settings</string>
+
+    <!-- Nav -->
+
+    <!-- Add -->
+    <string name="add_scan_title">Scan offer</string>
+    <string name="add_scan_hint">Point the camera at the issuer\'s QR code</string>
+    <string name="present_scan_title">Scan verifier QR</string>
+    <string name="present_scan_hint">Point the camera at the verifier\'s QR code</string>
+    <string name="present_scan_not_a_presentation">This QR isn\'t a presentation request.</string>
+    <string name="add_consent_title">Add credential</string>
+    <string name="add_consent_continue">Continue</string>
+    <string name="add_consent_cancel">Cancel</string>
+    <string name="add_tx_code_label">Transaction code</string>
+    <string name="add_tx_code_hint">Enter the code provided by the issuer</string>
+    <string name="add_unknown_issuer">This issuer is not on the trusted list.</string>
+
+    <!-- Add-offer flow (was hardcoded) -->
+    <string name="addoffer_loading">Loading offer…</string>
+    <string name="addoffer_resolving">Resolving credential offer…</string>
+    <string name="addoffer_issuer">Issuer: %1$s</string>
+    <string name="addoffer_browser_continue">Continuing authorization in browser…</string>
+    <string name="addoffer_issuing">Issuing credential…</string>
+    <string name="addoffer_error_prefix">Error: %1$s</string>
+    <string name="addoffer_failed_generic">Issuing failed</string>
+    <string name="addoffer_done">Done</string>
+
+    <!-- Common -->
+    <string name="error_show_details">Technical details</string>
+    <string name="error_hide_details">Hide details</string>
+    <string name="error_title_default">Something went wrong</string>
+    <string name="error_ok">OK</string>
+
+    <!-- Detail -->
+    <string name="detail_use">Use</string>
+    <string name="detail_details">Details</string>
+    <string name="detail_remove">Remove</string>
+    <string name="detail_loading">Loading…</string>
+    <string name="detail_claims_empty">No claim details available for this credential.</string>
+    <string name="detail_technical_details">Technical details</string>
+    <string name="detail_back_cd">Back</string>
+
+    <!-- Present -->
+    <string name="present_title">Share credential</string>
+    <string name="present_title_payment">Authorize payment</string>
+    <string name="present_authorize">Share</string>
+    <string name="present_authorize_payment">Authorize payment</string>
+    <string name="present_authorize_pay">Pay</string>
+    <string name="present_authorize_sign">Sign</string>
+    <string name="present_cancel">Cancel</string>
+    <string name="present_verifier">Verifier</string>
+    <string name="present_fields">Fields requested</string>
+    <string name="present_unknown_verifier">Untrusted verifier</string>
+    <string name="present_no_match">No matching credential in your wallet</string>
+    <string name="present_loading">Loading…</string>
+    <string name="present_error_prefix">Error: %1$s</string>
+    <string name="present_failed_generic">Presentation failed</string>
+    <string name="present_verifier_trusted">Verified verifier</string>
+    <string name="present_pick_for_each_query">Choose one credential for each requested field group</string>
+    <string name="paso_request_must_be_signed">Payment requests must be signed by the verifier.</string>
+    <string name="paso_multiple_entries_not_supported">Multi-credential payment requests are not supported.</string>
+
+    <!-- Transaction data (consent screen) -->
+    <string name="tx_data_payment_heading">You are about to authorize a payment</string>
+    <string name="tx_data_amount_missing">Amount not provided</string>
+    <string name="tx_data_payee">to %1$s</string>
+    <string name="tx_data_account">Account: %1$s</string>
+    <string name="tx_data_reference">Ref: %1$s</string>
+    <string name="tx_data_payee_id">ID: %1$s</string>
+    <string name="tx_data_qes_heading">Signing acceptance (QES)</string>
+    <string name="tx_data_qes_format">Format: %1$s</string>
+    <plurals name="tx_data_qes_document_count">
+        <item quantity="one">%1$d document to be signed</item>
+        <item quantity="other">%1$d documents to be signed</item>
+    </plurals>
+    <string name="tx_data_generic_heading">Transaction (%1$s)</string>
+    <string name="tx_data_invalid_heading">Invalid transaction data</string>
+    <string name="tx_data_invalid_body">Required payment information is missing or malformed.</string>
+    <string name="tx_data_dynamic_default_heading">Authorize transaction</string>
+
+    <!-- Activity tab placeholder -->
+
+    <!-- QR scanner -->
+    <string name="qr_permission_required">Camera permission required to scan QR codes.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_dc_api">System credential provider</string>
+    <string name="settings_dc_api_summary">Allow websites and apps to request credentials from this wallet via Android</string>
+    <string name="settings_dc_api_enable">Open system settings</string>
+    <string name="settings_trusted_issuers">Trusted issuers</string>
+    <string name="settings_trusted_verifiers">Trusted verifiers</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_summary">Choose how the wallet should look. \"System\" follows your device setting.</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_summary">Choose how the wallet should appear. \"System\" follows your device setting.</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_german">Deutsch</string>
+    <string name="settings_language_french">Français</string>
+    <string name="settings_developer_section">Developer</string>
+    <string name="settings_developer_mode">Developer mode</string>
+    <string name="settings_developer_mode_summary">Ignore the trusted issuer and verifier lists. Only enable for testing — every issuer and verifier will be accepted.</string>
+    <string name="settings_metadata_cache_section">Issuer metadata cache</string>
+    <string name="settings_metadata_cache_summary">Wallet-side cap on how long verified credential metadata (transaction-data types, claim labels, security hints) is kept on this device. Turning it off forces a fresh fetch every time the wallet needs metadata and clears existing rows.</string>
+    <string name="settings_metadata_cache_enabled">Cache issuer metadata</string>
+    <string name="settings_metadata_cache_ttl_label">Cache duration</string>
+    <string name="settings_metadata_cache_ttl_hour">1 hour</string>
+    <string name="settings_metadata_cache_ttl_day">1 day</string>
+    <string name="settings_metadata_cache_ttl_week">1 week</string>
+    <string name="settings_metadata_cache_ttl_jwt">Until issuer expiry</string>
+    <string name="settings_metadata_cache_clear">Clear cached metadata</string>
+
+    <!-- Lock -->
+    <string name="lock_title">Unlock wallet</string>
+    <string name="lock_subtitle">Authenticate to view your credentials</string>
+    <string name="lock_button">Unlock</string>
+    <string name="lock_no_credentials">Set up a screen lock (PIN, pattern, password, or biometric) in device settings to use the wallet.</string>
+    <string name="lock_open_settings">Open settings</string>
+    <string name="biometric_prompt_title">Authenticate</string>
+    <string name="biometric_prompt_subtitle">Confirm your identity to authorize</string>
+    <string name="biometric_prompt_negative">Cancel</string>
+
+    <!-- Banking -->
+
+
+
+
+
+
+
+
+    <!-- Transaction detail -->
+
+    <!-- AI chat -->
+
+    <!-- Cloud-backend setup card -->
+
+    <!-- Tool-call chip (cloud backend only) -->
+
+    <!-- Rich cards (cloud backend only) -->
+
+    <!-- AI advisor rich cards (analyzeFinances scopes) -->
+
+
+
+
+
+    <!-- AI settings -->
+
+    <!-- AI model display names — surfaced in the Settings picker + chat setup card. -->
+
+    <!-- Transaction kinds — natural-English translations of the German banking terms.
+         The underlying domain enum stays language-neutral. -->
+
+    <!-- Send Money flow -->
+    <!-- Send Money: Verification of Payee mid-flight review step -->
+    <!-- Send Money: Verification of Payee outcome badge on the Done step -->
+
+    <!-- Send Money: known-recipient picker -->
+
+    <!-- SendMoney + transfer summary chips (instant flag, source-account line) -->
+
+    <!-- AI chat: findRecipients candidates card -->
+
+    <!-- AI chat: aggregate amount card -->
+
+    <!-- Banking connection overview (lists all accounts under one HBCI login) -->
+
+    <!-- About section -->
+    <string name="settings_about">About</string>
+    <string name="settings_about_app_name">El Paso Wallet</string>
+    <string name="settings_about_publisher">digitallabor.berlin</string>
+    <string name="settings_about_copyright">© 2026</string>
+    <string name="settings_about_disclaimer">Disclaimer: This app is a research project. It does not in any way reflect an upcoming product development.</string>
+    <string name="settings_about_version">Version %1$s (Build %2$d)</string>
+</resources>
