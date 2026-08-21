@@ -1,0 +1,28 @@
+{
+  "imports": [
+    "credman.AddFieldForStringIdEntry",
+    "credman.AddInlineIssuanceEntry",
+    "credman.AddPaymentEntry",
+    "credman.AddStringIdEntry",
+    "credman.GetCredentialsSize",
+    "credman.GetRequestBuffer",
+    "credman.GetRequestSize",
+    "credman.GetWasmVersion",
+    "credman.ReadCredentialsBuffer",
+    "credman_v2.AddEntrySet",
+    "credman_v2.AddEntryToSet",
+    "credman_v2.AddFieldToEntrySet",
+    "credman_v2.AddPaymentEntryToSet",
+    "credman_v2.AddPaymentEntryToSetV2",
+    "credman_v5.AddMetadataDisplayTextToEntrySet",
+    "wasi_snapshot_preview1.fd_close",
+    "wasi_snapshot_preview1.fd_fdstat_get",
+    "wasi_snapshot_preview1.fd_seek",
+    "wasi_snapshot_preview1.fd_write",
+    "wasi_snapshot_preview1.proc_exit"
+  ],
+  "exports": [
+    "_start",
+    "memory"
+  ]
+}
