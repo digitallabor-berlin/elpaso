@@ -1,0 +1,130 @@
+diff --git a/test_runner.cc b/test_runner.cc
+index 6ec189b..440687e 100644
+--- a/test_runner.cc
++++ b/test_runner.cc
+@@ -419,6 +419,10 @@ TEST_CASE("TC34_ExtractPaymentGeneric") {
+     RunTest("TC34_ExtractPaymentGeneric");
+ }
+ 
++TEST_CASE("TC41_ExtractPasoPayment") {
++    RunTest("TC41_ExtractPasoPayment");
++}
++
+ TEST_CASE("TC35_WasmAddEntryToSet") {
+     RunTest("TC35_WasmAddEntryToSet");
+ }
+diff --git a/testdata/TC41_ExtractPasoPayment_expected.json b/testdata/TC41_ExtractPasoPayment_expected.json
+new file mode 100644
+index 0000000..c3a3c5d
+--- /dev/null
++++ b/testdata/TC41_ExtractPasoPayment_expected.json
+@@ -0,0 +1,79 @@
++{
++  "entrySets": {
++    "req:0;null": {
++      "entries": {
++        "0": {
++          "mdoc_cred_1": {
++            "additional_info": "Order 4711",
++            "credId": "mdoc_cred_1",
++            "disclaimer": "",
++            "fields": [],
++            "merchant_name": "Merchant X",
++            "metadata_display_text": "",
++            "subtitle": "",
++            "title": "",
++            "transaction_amount": "56.66 EUR",
++            "type": "Payment",
++            "warning": ""
++          },
++          "mdoc_cred_3": {
++            "additional_info": "Order 4711",
++            "credId": "mdoc_cred_3",
++            "disclaimer": "",
++            "fields": [],
++            "merchant_name": "Merchant X",
++            "metadata_display_text": "",
++            "subtitle": "",
++            "title": "",
++            "transaction_amount": "56.66 EUR",
++            "type": "Payment",
++            "warning": ""
++          },
++          "mdoc_cred_4": {
++            "additional_info": "Order 4711",
++            "credId": "mdoc_cred_4",
++            "disclaimer": "",
++            "fields": [],
++            "merchant_name": "Merchant X",
++            "metadata_display_text": "",
++            "subtitle": "",
++            "title": "",
++            "transaction_amount": "56.66 EUR",
++            "type": "Payment",
++            "warning": ""
++          },
++          "mdoc_cred_underage": {
++            "additional_info": "Order 4711",
++            "credId": "mdoc_cred_underage",
++            "disclaimer": "",
++            "fields": [],
++            "merchant_name": "Merchant X",
++            "metadata_display_text": "",
++            "subtitle": "",
++            "title": "",
++            "transaction_amount": "56.66 EUR",
++            "type": "Payment",
++            "warning": ""
++          }
++        }
++      },
++      "setId": "req:0;null",
++      "setLength": 1
++    }
++  },
++  "standaloneEntries": [
++    {
++      "additional_info": "",
++      "credId": "issuance_mdl_1",
++      "disclaimer": "",
++      "fields": [],
++      "merchant_name": "",
++      "metadata_display_text": "",
++      "subtitle": "From your local DMV",
++      "title": "Get a New mDL",
++      "transaction_amount": "",
++      "type": "InlineIssuance",
++      "warning": ""
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/testdata/TC41_ExtractPasoPayment_request.json b/testdata/TC41_ExtractPasoPayment_request.json
+new file mode 100644
+index 0000000..a32e1ef
+--- /dev/null
++++ b/testdata/TC41_ExtractPasoPayment_request.json
+@@ -0,0 +1,23 @@
++{
++  "requests": [
++    {
++      "data": {
++        "dcql_query": {
++          "credentials": [
++            {
++              "format": "mso_mdoc",
++              "id": "mdl",
++              "meta": {
++                "doctype_value": "org.iso.18013.5.1.mDL"
++              }
++            }
++          ]
++        },
++        "transaction_data": [
++          "eyJ0eXBlIjogInVybjpwYXNvOnNjYTpnbG9iYWw6cGF5bWVudDoxIiwgInBheWxvYWQiOiB7InRyYW5zYWN0aW9uX2lkIjogInR4LTAwMDEiLCAicGF5ZWUiOiB7Im5hbWUiOiAiTWVyY2hhbnQgWCIsICJpZCI6ICJERTg5MzcwNDAwNDQwNTMyMDEzMDAwIn0sICJhbW91bnQiOiAiNTYuNjYgRVVSIiwgImFkZGl0aW9uYWxfaW5mbyI6ICJPcmRlciA0NzExIn0sICJjcmVkZW50aWFsX2lkcyI6IFsibWRsIl19"
++        ]
++      },
++      "protocol": "openid4vp-v1-unsigned"
++    }
++  ]
++}

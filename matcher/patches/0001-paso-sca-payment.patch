@@ -1,0 +1,30 @@
+diff --git a/openid4vp1_0.c b/openid4vp1_0.c
+index c02b275..4dd4d8b 100644
+--- a/openid4vp1_0.c
++++ b/openid4vp1_0.c
+@@ -304,6 +304,25 @@ static int process_request(
+                     printf("transaction amount %s\n", transaction_amount);
+                     
+                     additional_info = cJSON_GetStringValue(cJSON_GetObjectItem(transaction_data, "additional_info"));
++                } else if (transaction_data_type != NULL && strcmp(transaction_data_type, "urn:paso:sca:global:payment:1") == 0) {
++                    /* PaSO (Payments and SCA for OpenID) nests its fields like EUDI TS12,
++                       but carries the amount as one display-ready string ("56.66 EUR")
++                       under payload.amount. The EUDI branch above reads a display string
++                       only from payload.amount_display and otherwise falls back to
++                       cJSON_GetNumberValue(payload.amount) -- which yields 0.0 for a
++                       string, then log10(0.0) and an sprintf with a NULL currency. Hence
++                       a branch of its own rather than widening that one. */
++                    cJSON *payload = cJSON_GetObjectItem(transaction_data, "payload");
++                    merchant_name = cJSON_GetStringValue(
++                        cJSON_GetObjectItem(cJSON_GetObjectItem(payload, "payee"), "name"));
++                    transaction_amount = cJSON_GetStringValue(cJSON_GetObjectItem(payload, "amount"));
++                    printf("transaction amount %s\n", transaction_amount);
++
++                    additional_info = cJSON_GetStringValue(cJSON_GetObjectItem(payload, "additional_info"));
++                    if (additional_info == NULL) {
++                        additional_info = cJSON_GetStringValue(
++                            cJSON_GetObjectItem(transaction_data, "additional_info"));
++                    }
+                 } else if (transaction_data_type != NULL && strcmp(transaction_data_type, "payment_details") == 0) {
+                     merchant_name = cJSON_GetStringValue(cJSON_GetObjectItem(transaction_data, "payee_name"));
+ 
