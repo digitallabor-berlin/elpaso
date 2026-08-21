@@ -9,6 +9,7 @@ import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
 import dev.digitallabor.elpaso.wallet.data.store.TransactionRepository
 import dev.digitallabor.elpaso.wallet.data.store.WalletDatabase
 import dev.digitallabor.elpaso.wallet.data.trust.TrustListService
+import dev.digitallabor.elpaso.wallet.dcapi.DcIssuanceRegistrySync
 import dev.digitallabor.elpaso.wallet.dcapi.DcRegistrySync
 import dev.digitallabor.elpaso.wallet.issuance.CredentialMetadataClient
 import dev.digitallabor.elpaso.wallet.issuance.CredentialMetadataRefresher
@@ -57,6 +58,7 @@ val dataModule =
         single { CredentialMetadataRepository(get(), get(), get(), get()) }
         single { TransactionRepository(get()) }
         single { DcRegistrySync(get(), get()) }
+        single { DcIssuanceRegistrySync(get(), get(), get()) }
     }
 
 val issuanceModule =

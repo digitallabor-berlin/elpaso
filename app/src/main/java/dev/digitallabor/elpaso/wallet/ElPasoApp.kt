@@ -10,6 +10,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.svg.SvgDecoder
 import dev.digitallabor.elpaso.wallet.data.settings.LocaleApplier
 import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
+import dev.digitallabor.elpaso.wallet.dcapi.DcIssuanceRegistrySync
 import dev.digitallabor.elpaso.wallet.dcapi.DcRegistrySync
 import dev.digitallabor.elpaso.wallet.di.appModule
 import dev.digitallabor.elpaso.wallet.di.dataModule
@@ -63,6 +64,10 @@ class ElPasoApp : Application() {
         // this snapshot to decide which credential answers a verifier's request.
         val lifecycleOwner: LifecycleOwner = ProcessLifecycleOwner.get()
         get<DcRegistrySync>().start(lifecycleOwner.lifecycleScope)
+
+        // Register the wallet as a DC API *issuance* target so `navigator.credentials.create()`
+        // offers "Save to El Paso". Keyed off developerMode only, hence its own sync.
+        get<DcIssuanceRegistrySync>().start(lifecycleOwner.lifecycleScope)
 
         // Coil shares the Koin-managed Ktor client so logo fetches go through the same
         // logging/timeouts as the rest of the wallet.
