@@ -28,10 +28,13 @@ git config user.email build@localhost
 git config user.name "matcher build"
 git add -A
 git commit -qm "vendored upstream"
-if [ -d "$PATCHES" ] && compgen -G "$PATCHES/*.patch" > /dev/null; then
+if [ -d "$PATCHES" ] && compgen -G "$PATCHES/*.patch" >/dev/null; then
     for p in "$PATCHES"/*.patch; do
         echo "-- $p"
-        git apply --check "$p" || { echo "PATCH DOES NOT APPLY: $p" >&2; exit 1; }
+        git apply --check "$p" || {
+            echo "PATCH DOES NOT APPLY: $p" >&2
+            exit 1
+        }
         git apply "$p"
     done
 else
@@ -71,14 +74,17 @@ make test
 
 for t in $TARGETS; do
     case "$t" in
-        openid4vp1_0)      build_wasm openid4vp1_0 "openid4vp1_0.c dcql.c" ;;
-        issuance_provision) build_wasm issuance_provision "issuance/provision.c dcql.c" ;;
-        *) echo "unknown target: $t" >&2; exit 1 ;;
+    openid4vp1_0) build_wasm openid4vp1_0 "openid4vp1_0.c dcql.c" ;;
+    issuance_provision) build_wasm issuance_provision "issuance/provision.c dcql.c" ;;
+    *)
+        echo "unknown target: $t" >&2
+        exit 1
+        ;;
     esac
 done
 
 echo "== surface diff against upstream reference =="
-python3 /work/wasm_surface.py "$OUT/openid4vp1_0.wasm" > "$OUT/built-surface.json"
+python3 /work/wasm_surface.py "$OUT/openid4vp1_0.wasm" >"$OUT/built-surface.json"
 python3 - <<'PY'
 import json, sys
 ref = json.load(open("/work/reference-surface.json"))

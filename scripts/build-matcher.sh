@@ -57,7 +57,10 @@ echo "== building matcher =="
     "$IMAGE"
 
 BUILT="$OUT_DIR/$ASSET_NAME"
-[ -f "$BUILT" ] || { echo "expected $BUILT after build" >&2; exit 1; }
+[ -f "$BUILT" ] || {
+    echo "expected $BUILT after build" >&2
+    exit 1
+}
 BUILT_SHA="$(shasum -a 256 "$BUILT" | awk '{print $1}')"
 echo "built sha256: $BUILT_SHA ($(wc -c <"$BUILT") bytes)"
 
