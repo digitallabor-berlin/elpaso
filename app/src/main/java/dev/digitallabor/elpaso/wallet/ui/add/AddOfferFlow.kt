@@ -100,10 +100,14 @@ fun AddOfferFlow(
 
     Scaffold(modifier = modifier) { inner ->
         val s = state
-        val resolving = s is IssuanceClient.State.Idle && incomingOfferUri != null
-        val showScanner = (s is IssuanceClient.State.Idle && !resolving) || s is IssuanceClient.State.Failed
+        val hasIncomingOffer = incomingOfferUri != null
+        val mode = addOfferMode(s, hasIncomingOffer)
+        val onErrorDismiss: () -> Unit = {
+            client.reset()
+            if (dismissLeavesScreen(hasIncomingOffer)) onCancel()
+        }
 
-        if (showScanner) {
+        if (mode == AddOfferMode.Scanner) {
             // Full-screen camera with overlay chrome (M3 Expressive immersive scanner pattern).
             // Camera is the hero; title sits in a transparent CenterAlignedTopAppBar so the
             // image fills the available content area edge-to-edge. Back IconButton replaces
@@ -163,18 +167,24 @@ fun AddOfferFlow(
 
                 if (s is IssuanceClient.State.Failed) {
                     ErrorModal(
-                        message =
-                            stringResource(
-                                when (s.phase) {
-                                    IssuanceClient.State.Failed.Phase.Offer -> R.string.addoffer_failed_resolve
-                                    IssuanceClient.State.Failed.Phase.Issuance -> R.string.addoffer_failed_generic
-                                },
-                            ),
+                        message = stringResource(failureHeadline(s.phase)),
                         technicalDetails = s.message,
-                        onDismissRequest = client::reset,
+                        onDismissRequest = onErrorDismiss,
                     )
                 }
             }
+            return@Scaffold
+        }
+
+        if (mode == AddOfferMode.Error && s is IssuanceClient.State.Failed) {
+            // Deep-linked offer: the modal stands alone. Opening the camera behind it would offer
+            // the user a scanner they never asked for, and dismissing it navigates away rather
+            // than leaving this screen sitting in Idle with nothing to do.
+            ErrorModal(
+                message = stringResource(failureHeadline(s.phase)),
+                technicalDetails = s.message,
+                onDismissRequest = onErrorDismiss,
+            )
             return@Scaffold
         }
 
@@ -186,13 +196,16 @@ fun AddOfferFlow(
             contentAlignment = Alignment.Center,
         ) {
             when (s) {
-                IssuanceClient.State.Idle, is IssuanceClient.State.Failed -> {
+                IssuanceClient.State.Idle, IssuanceClient.State.Resolving -> {
                     // Resolving an incoming deep-link offer — no scanner shown.
                     Text(
                         stringResource(R.string.addoffer_resolving),
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 }
+
+                // Already rendered above, as either the Scanner or the Error surface.
+                is IssuanceClient.State.Failed -> Unit
 
                 is IssuanceClient.State.OfferResolved -> {
                     val txReq = (s.grant as? IssuanceClient.GrantOption.PreAuthorized)?.txCode
@@ -322,6 +335,13 @@ fun AddOfferFlow(
         }
     }
 }
+
+/** Headline for a [IssuanceClient.State.Failed], which serves both halves of the flow. */
+private fun failureHeadline(phase: IssuanceClient.State.Failed.Phase): Int =
+    when (phase) {
+        IssuanceClient.State.Failed.Phase.Offer -> R.string.addoffer_failed_resolve
+        IssuanceClient.State.Failed.Phase.Issuance -> R.string.addoffer_failed_generic
+    }
 
 @Composable
 private fun Row(

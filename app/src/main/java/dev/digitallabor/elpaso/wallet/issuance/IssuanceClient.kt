@@ -56,8 +56,8 @@ import java.util.UUID
  * Drives the OpenID4VCI flow using the EUDI `eudi-lib-jvm-openid4vci-kt` library.
  *
  * State machine:
- *   Idle → OfferResolved → AwaitingAuth → Issuing → Done   (on auth-code path)
- *   Idle → OfferResolved → Issuing → Done                  (on pre-auth path)
+ *   Idle → Resolving → OfferResolved → AwaitingAuth → Issuing → Done   (on auth-code path)
+ *   Idle → Resolving → OfferResolved → Issuing → Done                  (on pre-auth path)
  *
  * The wallet's signer is a [WalletProofsSigner] backed by per-credential Android Keystore
  * P-256 keys, plugged into the library as
@@ -80,6 +80,16 @@ class IssuanceClient(
 ) {
     sealed interface State {
         data object Idle : State
+
+        /**
+         * An offer resolution is in flight.
+         *
+         * Distinct from [Idle] on purpose. The UI used to infer "resolving" from `Idle` plus the
+         * presence of a deep-link offer, which made the absence of work indistinguishable from
+         * work in progress: after a failed offer was dismissed the client went back to `Idle` and
+         * the screen went on claiming to resolve something, forever, with no request to time out.
+         */
+        data object Resolving : State
 
         data class OfferResolved(
             val issuer: String,
@@ -177,11 +187,17 @@ class IssuanceClient(
      * call to the composition lifetime, so any recomposition that disposes the host composable
      * cancels the in-flight metadata fetch with `LeftCompositionCancellationException`.
      */
-    fun resolveOfferAsync(uri: Uri): Job = scope.launch { resolveOffer(uri) }
+    fun resolveOfferAsync(uri: Uri): Job {
+        // Published before the coroutine is dispatched, so no frame can observe Idle while a
+        // resolve is already on its way.
+        state.value = State.Resolving
+        return scope.launch { resolveOffer(uri) }
+    }
 
     suspend fun resolveOffer(uri: Uri): Result<State.OfferResolved> =
         runCatching {
             Log.i(LOG_TAG, "resolveOffer start: $uri")
+            state.value = State.Resolving
             val raw = OfferHandler.parse(uri) ?: error("Unsupported offer URI: $uri")
             Log.i(LOG_TAG, "calling Issuer.make")
             val issuer = Issuer.make(config, raw, httpClient).getOrThrow()
