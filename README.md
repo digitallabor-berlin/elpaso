@@ -301,8 +301,10 @@ app/src/main/java/dev/digitallabor/elpaso/wallet/
 └── util/                   B64u, JoseEcdsa helpers
 ```
 
-Assets: `dcapi_matcher.wasm` (DC API matcher binary), `trusted_issuers.json`,
-`trusted_verifiers.json`.
+Assets: `dcapi_matcher.wasm` (DC API presentation matcher binary),
+`dc_issuance_matcher.wasm` (DC API issuance/creation-options matcher, vendored from
+CMWallet's `provision_hardcoded.wasm`; source is CMWallet `matcher/issuance/provision.c`),
+`trusted_issuers.json`, `trusted_verifiers.json`.
 
 ## Architecture quick reference
 

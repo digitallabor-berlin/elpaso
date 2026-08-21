@@ -45,8 +45,11 @@ to extend.
   `appModule`, `dataModule`, `issuanceModule`, `presentationModule`. ViewModels via
   `koinViewModel()`, singletons via `koinInject()`.
 - **`SettingsRepository` is the single source of truth** for theme, language, wallet
-  order, metadata-cache enable + TTL, developer mode, and DC API registration.
-  DataStore Preferences underneath. Do not add a parallel preference store.
+  order, metadata-cache enable + TTL, and developer mode. DataStore Preferences
+  underneath. Do not add a parallel preference store. Note there is no "DC API
+  registration" flag: `DcRegistrySync` registers unconditionally, and
+  `DcIssuanceRegistrySync` keys only off `developerMode` (which selects whether the
+  creation-options matcher gets an issuer allowlist).
 
 ## Credential protocols (OpenID4VP / OpenID4VCI)
 
