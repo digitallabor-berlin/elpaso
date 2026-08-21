@@ -1,0 +1,56 @@
+{
+    "credentials": {
+        "mso_mdoc": {
+            "org.iso.18013.5.1.mDL": [
+                {
+                    "id": "1",
+                    "title": "Bruce's Driving License",
+                    "subtitle": "Gotham City DMV",
+                    "namespaces": {
+                        "org.iso.18013.5.1": {
+                            "family_name": {
+                                "value": "Wayne",
+                                "display": "Family Name",
+                                "display_value": "Wayne"
+                            },
+                            "given_name": {
+                                "value": "Bruce",
+                                "display": "Given Name",
+                                "display_value": "Bruce"
+                            },
+                            "age_over_21": {
+                                "value": true,
+                                "display": "Age Over 21",
+                                "display_value": "True"
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "2",
+                    "title": "Clarks's Driving License",
+                    "subtitle": "Metropolis DMV",
+                    "namespaces": {
+                        "org.iso.18013.5.1": {
+                            "family_name": {
+                                "value": "Kent",
+                                "display": "Family Name",
+                                "display_value": "Kent"
+                            },
+                            "given_name": {
+                                "value": "Clark",
+                                "display": "Given Name",
+                                "display_value": "Clark"
+                            },
+                            "age_over_21": {
+                                "value": true,
+                                "display": "Age Over 21",
+                                "display_value": "True"
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

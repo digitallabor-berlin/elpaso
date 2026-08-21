@@ -1,0 +1,11 @@
+# Provenance of app/src/main/assets/openid4vp1_0.wasm
+# Regenerate and verify with: bash scripts/build-matcher.sh --verify
+
+upstream_repo    = https://github.com/digitalcredentialsdev/CMWallet
+upstream_commit  = 769402d
+upstream_subdir  = matcher/
+upstream_excludes= pnv/ .DS_Store .gitignore
+patches          = 0001-paso-sca-payment.patch 0002-paso-test-case.patch
+wasi_sdk_version = 33.0
+base_image       = see matcher/base-image.txt
+export_allowlist = memory _start main
