@@ -205,7 +205,9 @@ fun AddOfferFlow(
                 }
 
                 // Already rendered above, as either the Scanner or the Error surface.
-                is IssuanceClient.State.Failed -> Unit
+                is IssuanceClient.State.Failed -> {
+                    Unit
+                }
 
                 is IssuanceClient.State.OfferResolved -> {
                     val txReq = (s.grant as? IssuanceClient.GrantOption.PreAuthorized)?.txCode

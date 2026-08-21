@@ -5,10 +5,8 @@ import android.util.Base64
 import android.util.Log
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
-import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData as UiTransactionData
 import dev.digitallabor.elpaso.wallet.vct.SdJwtClaimsReconstructor
 import dev.digitallabor.elpaso.wallet.vct.SdJwtVctExtractor
-import java.io.ByteArrayOutputStream
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,6 +23,8 @@ import org.multipaz.cbor.Cbor
 import org.multipaz.cbor.DataItem
 import org.multipaz.cbor.MajorType
 import org.multipaz.mdoc.issuersigned.IssuerNamespaces
+import java.io.ByteArrayOutputStream
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData as UiTransactionData
 
 /**
  * Serialises the wallet's credential set into the `PackageConfig` JSON consumed by the
@@ -43,7 +43,6 @@ import org.multipaz.mdoc.issuersigned.IssuerNamespaces
  * broader exposure.
  */
 internal object MatcherPackageBuilder {
-
     private const val LOG_TAG = "MatcherPackageBuilder"
 
     /**
@@ -53,71 +52,79 @@ internal object MatcherPackageBuilder {
      * `OpenId4VpRegistry` entries. Passed in (rather than rendered here) so we don't pull
      * an Android Context into this builder.
      */
-    fun build(credentials: List<Credential>, iconBitmap: Bitmap?): ByteArray {
+    fun build(
+        credentials: List<Credential>,
+        iconBitmap: Bitmap?,
+    ): ByteArray {
         val iconB64 = iconBitmap?.let(::bitmapToBase64Png)
-        val pkg = buildJsonObject {
-            put("default_id_prefix", JsonPrimitive("cred-"))
-            putJsonObject("openid4vp") {
-                put("enabled", JsonPrimitive(true))
-                putJsonArray("supported_request_protocols") {
-                    add(JsonPrimitive("openid4vp-v1-unsigned"))
-                    add(JsonPrimitive("openid4vp-v1-signed"))
-                    add(JsonPrimitive("openid4vp-v1-multisigned"))
-                }
-                putJsonArray("supported_response_modes") {
-                    add(JsonPrimitive("dc_api"))
-                    add(JsonPrimitive("dc_api.jwt"))
-                }
-                putJsonArray("supported_response_types") { add(JsonPrimitive("vp_token")) }
-                putJsonArray("supported_query_methods") { add(JsonPrimitive("dcql_query")) }
-                putJsonArray("supported_request_parameters") {
-                    add(JsonPrimitive("transaction_data"))
-                }
-            }
-            putJsonObject("dcql") {
-                put("credential_set_option_mode", JsonPrimitive("first_satisfiable_only"))
-                put("optional_credential_sets_mode", JsonPrimitive("prefer_present"))
-                // `ts12_prefixes` controls which `transaction_data.type` URNs the matcher
-                // routes through its TS12 path (which calls `ts12_payment_summary` and
-                // renders the credential as a payment entry in the system selector).
-                // Default is just `urn:eudi:sca:`; PaSO uses `urn:paso:sca:` so we have to
-                // opt that in explicitly or the credential renders as a plain entry.
-                putJsonArray("ts12_prefixes") {
-                    add(JsonPrimitive("urn:eudi:sca:"))
-                    add(JsonPrimitive("urn:paso:sca:"))
-                }
-            }
-            // Map the PaSO TS12 transaction type to its payee/amount payload paths. The
-            // matcher uses this to render an `AddPaymentEntry` (merchant + amount) in the
-            // system selector rather than a generic verification entry.
-            putJsonObject("payment_sca") {
-                putJsonObject(UiTransactionData.PasoPayment.TYPE) {
-                    putJsonArray("payee") {
-                        add(JsonPrimitive("payload"))
-                        add(JsonPrimitive("payee"))
-                        add(JsonPrimitive("name"))
+        val pkg =
+            buildJsonObject {
+                put("default_id_prefix", JsonPrimitive("cred-"))
+                putJsonObject("openid4vp") {
+                    put("enabled", JsonPrimitive(true))
+                    putJsonArray("supported_request_protocols") {
+                        add(JsonPrimitive("openid4vp-v1-unsigned"))
+                        add(JsonPrimitive("openid4vp-v1-signed"))
+                        add(JsonPrimitive("openid4vp-v1-multisigned"))
                     }
-                    putJsonArray("amount") {
-                        add(JsonPrimitive("payload"))
-                        add(JsonPrimitive("amount"))
+                    putJsonArray("supported_response_modes") {
+                        add(JsonPrimitive("dc_api"))
+                        add(JsonPrimitive("dc_api.jwt"))
+                    }
+                    putJsonArray("supported_response_types") { add(JsonPrimitive("vp_token")) }
+                    putJsonArray("supported_query_methods") { add(JsonPrimitive("dcql_query")) }
+                    putJsonArray("supported_request_parameters") {
+                        add(JsonPrimitive("transaction_data"))
                     }
                 }
-            }
-            put("log_level", JsonPrimitive("info"))
-            putJsonArray("credentials") {
-                credentials.forEach { credential ->
-                    val entry = when (credential.format) {
-                        Format.SdJwtVc -> buildSdJwtEntry(credential, iconB64)
-                        Format.MsoMdoc -> buildMdocEntry(credential, iconB64)
+                putJsonObject("dcql") {
+                    put("credential_set_option_mode", JsonPrimitive("first_satisfiable_only"))
+                    put("optional_credential_sets_mode", JsonPrimitive("prefer_present"))
+                    // `ts12_prefixes` controls which `transaction_data.type` URNs the matcher
+                    // routes through its TS12 path (which calls `ts12_payment_summary` and
+                    // renders the credential as a payment entry in the system selector).
+                    // Default is just `urn:eudi:sca:`; PaSO uses `urn:paso:sca:` so we have to
+                    // opt that in explicitly or the credential renders as a plain entry.
+                    putJsonArray("ts12_prefixes") {
+                        add(JsonPrimitive("urn:eudi:sca:"))
+                        add(JsonPrimitive("urn:paso:sca:"))
                     }
-                    if (entry != null) add(entry)
+                }
+                // Map the PaSO TS12 transaction type to its payee/amount payload paths. The
+                // matcher uses this to render an `AddPaymentEntry` (merchant + amount) in the
+                // system selector rather than a generic verification entry.
+                putJsonObject("payment_sca") {
+                    putJsonObject(UiTransactionData.PasoPayment.TYPE) {
+                        putJsonArray("payee") {
+                            add(JsonPrimitive("payload"))
+                            add(JsonPrimitive("payee"))
+                            add(JsonPrimitive("name"))
+                        }
+                        putJsonArray("amount") {
+                            add(JsonPrimitive("payload"))
+                            add(JsonPrimitive("amount"))
+                        }
+                    }
+                }
+                put("log_level", JsonPrimitive("info"))
+                putJsonArray("credentials") {
+                    credentials.forEach { credential ->
+                        val entry =
+                            when (credential.format) {
+                                Format.SdJwtVc -> buildSdJwtEntry(credential, iconB64)
+                                Format.MsoMdoc -> buildMdocEntry(credential, iconB64)
+                            }
+                        if (entry != null) add(entry)
+                    }
                 }
             }
-        }
         return JSON.encodeToString(JsonElement.serializer(), pkg).encodeToByteArray()
     }
 
-    private fun buildSdJwtEntry(credential: Credential, iconB64: String?): JsonObject? {
+    private fun buildSdJwtEntry(
+        credential: Credential,
+        iconB64: String?,
+    ): JsonObject? {
         val vct = SdJwtVctExtractor.extract(credential.payload) ?: return null
         // Reconstructed tree: SD-JWT `_sd` digests resolved to their disclosure values at
         // the position the issuer signed them at. The matcher walks DCQL paths against
@@ -206,7 +213,11 @@ internal object MatcherPackageBuilder {
      */
     private fun collectLeafPaths(root: JsonObject): List<List<String>> {
         val out = mutableListOf<List<String>>()
-        fun walk(element: JsonElement, prefix: List<String>) {
+
+        fun walk(
+            element: JsonElement,
+            prefix: List<String>,
+        ) {
             when (element) {
                 is JsonObject -> {
                     if (element.isEmpty()) {
@@ -215,13 +226,20 @@ internal object MatcherPackageBuilder {
                     }
                     for ((key, value) in element) walk(value, prefix + key)
                 }
+
                 is JsonArray -> {
                     // Treat arrays as leaves — the matcher's `select_nodes` resolves an
                     // array path to the full array, and we have no useful per-index label.
                     if (prefix.isNotEmpty()) out += prefix
                 }
-                is JsonPrimitive -> if (prefix.isNotEmpty()) out += prefix
-                else -> if (prefix.isNotEmpty()) out += prefix
+
+                is JsonPrimitive -> {
+                    if (prefix.isNotEmpty()) out += prefix
+                }
+
+                else -> {
+                    if (prefix.isNotEmpty()) out += prefix
+                }
             }
         }
         walk(root, emptyList())
@@ -239,51 +257,70 @@ internal object MatcherPackageBuilder {
      * type (text → string, ints → number, bool/null → primitive, bstr → base64); date
      * tags and similar complex tags are flattened to whatever the tagged inner item is.
      */
-    private fun buildMdocEntry(credential: Credential, iconB64: String?): JsonObject? = runCatching {
-        val payloadBytes = Base64.decode(
-            credential.payload.decodeToString(),
-            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
-        )
-        val issuerSignedMap = Cbor.decode(payloadBytes).asMap
-        val nameSpacesItem = issuerSignedMap.entries.firstOrNull { it.key.asTstr == "nameSpaces" }?.value
-            ?: return@runCatching null
-        val namespaces = IssuerNamespaces.fromDataItem(nameSpacesItem)
-        if (namespaces.data.isEmpty()) return@runCatching null
+    private fun buildMdocEntry(
+        credential: Credential,
+        iconB64: String?,
+    ): JsonObject? =
+        runCatching {
+            val payloadBytes =
+                Base64.decode(
+                    credential.payload.decodeToString(),
+                    Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+                )
+            val issuerSignedMap = Cbor.decode(payloadBytes).asMap
+            val nameSpacesItem =
+                issuerSignedMap.entries.firstOrNull { it.key.asTstr == "nameSpaces" }?.value
+                    ?: run {
+                        Log.w(LOG_TAG, "buildMdocEntry: no nameSpaces in IssuerSigned for ${credential.id}")
+                        return@runCatching null
+                    }
+            // Strict on purpose. Unlike the detail screen (see CredentialClaims.displayClaimFrom,
+            // which tolerates a non-`bstr` IssuerSignedItem.random for display only), the matcher
+            // must not advertise a credential the presentation path cannot actually produce a
+            // DeviceResponse for — MdocDeviceResponseBuilder re-encodes each item and the MSO
+            // digests are over the issuer's original bytes. A non-conformant issuer therefore
+            // yields a logged omission here rather than an entry that fails at selection time.
+            val namespaces = IssuerNamespaces.fromDataItem(nameSpacesItem)
+            if (namespaces.data.isEmpty()) {
+                Log.w(LOG_TAG, "buildMdocEntry: IssuerNamespaces empty for ${credential.id}")
+                return@runCatching null
+            }
 
-        val claims = buildJsonObject {
+            val claims =
+                buildJsonObject {
+                    for ((namespaceName, elementsByName) in namespaces.data) {
+                        putJsonObject(namespaceName) {
+                            for ((elementName, signedItem) in elementsByName) {
+                                put(elementName, cborToJson(signedItem.dataElementValue))
+                            }
+                        }
+                    }
+                }
+            val leafPaths = mutableListOf<List<String>>()
             for ((namespaceName, elementsByName) in namespaces.data) {
-                putJsonObject(namespaceName) {
-                    for ((elementName, signedItem) in elementsByName) {
-                        put(elementName, cborToJson(signedItem.dataElementValue))
-                    }
+                for (elementName in elementsByName.keys) {
+                    leafPaths += listOf(namespaceName, elementName)
                 }
             }
-        }
-        val leafPaths = mutableListOf<List<String>>()
-        for ((namespaceName, elementsByName) in namespaces.data) {
-            for (elementName in elementsByName.keys) {
-                leafPaths += listOf(namespaceName, elementName)
-            }
-        }
 
-        buildJsonObject {
-            put("id", JsonPrimitive(credential.id))
-            put("format", JsonPrimitive(credential.format.wire))
-            put("title", JsonPrimitive(credential.displayName))
-            put("subtitle", JsonPrimitive(credential.issuerId))
-            if (iconB64 != null) put("icon", JsonPrimitive(iconB64))
-            put("doctype", JsonPrimitive(credential.configurationId))
-            putJsonArray("fields") {
-                leafPaths.forEach { path ->
-                    addJsonObject {
-                        putJsonArray("path") { path.forEach { add(JsonPrimitive(it)) } }
-                        put("display_name", JsonPrimitive(path.joinToString(".")))
+            buildJsonObject {
+                put("id", JsonPrimitive(credential.id))
+                put("format", JsonPrimitive(credential.format.wire))
+                put("title", JsonPrimitive(credential.displayName))
+                put("subtitle", JsonPrimitive(credential.issuerId))
+                if (iconB64 != null) put("icon", JsonPrimitive(iconB64))
+                put("doctype", JsonPrimitive(credential.configurationId))
+                putJsonArray("fields") {
+                    leafPaths.forEach { path ->
+                        addJsonObject {
+                            putJsonArray("path") { path.forEach { add(JsonPrimitive(it)) } }
+                            put("display_name", JsonPrimitive(path.joinToString(".")))
+                        }
                     }
                 }
+                put("claims", claims)
             }
-            put("claims", claims)
-        }
-    }.onFailure { Log.w(LOG_TAG, "buildMdocEntry failed for ${credential.id}", it) }.getOrNull()
+        }.onFailure { Log.w(LOG_TAG, "buildMdocEntry failed for ${credential.id}", it) }.getOrNull()
 
     /**
      * Convert a CBOR [DataItem] to a JSON element for the matcher's `claims` tree. The
@@ -293,34 +330,52 @@ internal object MatcherPackageBuilder {
      * numbers. Anything unrecognised becomes JSON `null` rather than throwing — the
      * matcher will still see the path exist, which is what most queries actually need.
      */
-    private fun cborToJson(item: DataItem): JsonElement = when (item.majorType) {
-        MajorType.UNSIGNED_INTEGER, MajorType.NEGATIVE_INTEGER ->
-            JsonPrimitive(item.asNumber)
-        MajorType.BYTE_STRING ->
-            JsonPrimitive(Base64.encodeToString(item.asBstr, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING))
-        MajorType.UNICODE_STRING ->
-            JsonPrimitive(item.asTstr)
-        MajorType.ARRAY -> JsonArray(item.asArray.map(::cborToJson))
-        MajorType.MAP -> buildJsonObject {
-            for ((k, v) in item.asMap) {
-                val key = when (k.majorType) {
-                    MajorType.UNICODE_STRING -> k.asTstr
-                    MajorType.UNSIGNED_INTEGER, MajorType.NEGATIVE_INTEGER -> k.asNumber.toString()
-                    else -> k.toString()
+    private fun cborToJson(item: DataItem): JsonElement =
+        when (item.majorType) {
+            MajorType.UNSIGNED_INTEGER, MajorType.NEGATIVE_INTEGER -> {
+                JsonPrimitive(item.asNumber)
+            }
+
+            MajorType.BYTE_STRING -> {
+                JsonPrimitive(Base64.encodeToString(item.asBstr, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING))
+            }
+
+            MajorType.UNICODE_STRING -> {
+                JsonPrimitive(item.asTstr)
+            }
+
+            MajorType.ARRAY -> {
+                JsonArray(item.asArray.map(::cborToJson))
+            }
+
+            MajorType.MAP -> {
+                buildJsonObject {
+                    for ((k, v) in item.asMap) {
+                        val key =
+                            when (k.majorType) {
+                                MajorType.UNICODE_STRING -> k.asTstr
+                                MajorType.UNSIGNED_INTEGER, MajorType.NEGATIVE_INTEGER -> k.asNumber.toString()
+                                else -> k.toString()
+                            }
+                        put(key, cborToJson(v))
+                    }
                 }
-                put(key, cborToJson(v))
+            }
+
+            MajorType.TAG -> {
+                // Unwrap tagged values (e.g. dates tag 0/1004, embedded CBOR tag 24). For the
+                // matcher's purposes the inner value is what's interesting.
+                runCatching { cborToJson(Cbor.decode(Cbor.encode(item)).asTagged) }.getOrElse { JsonNull }
+            }
+
+            MajorType.SPECIAL -> {
+                when {
+                    item.toString() == "true" -> JsonPrimitive(true)
+                    item.toString() == "false" -> JsonPrimitive(false)
+                    else -> runCatching { JsonPrimitive(item.asBoolean) }.getOrElse { JsonNull }
+                }
             }
         }
-        MajorType.TAG ->
-            // Unwrap tagged values (e.g. dates tag 0/1004, embedded CBOR tag 24). For the
-            // matcher's purposes the inner value is what's interesting.
-            runCatching { cborToJson(Cbor.decode(Cbor.encode(item)).asTagged) }.getOrElse { JsonNull }
-        MajorType.SPECIAL -> when {
-            item.toString() == "true" -> JsonPrimitive(true)
-            item.toString() == "false" -> JsonPrimitive(false)
-            else -> runCatching { JsonPrimitive(item.asBoolean) }.getOrElse { JsonNull }
-        }
-    }
 
     private fun bitmapToBase64Png(bitmap: Bitmap): String {
         val stream = ByteArrayOutputStream()
