@@ -9,3 +9,4 @@ patches          = 0001-paso-sca-payment.patch 0002-paso-test-case.patch
 wasi_sdk_version = 33.0
 base_image       = see matcher/base-image.txt
 export_allowlist = memory _start main
+artifact_sha256  = 74e870c58ea27318d5641331dc04d1900aea5897cacdb4926508d325b4ffe248

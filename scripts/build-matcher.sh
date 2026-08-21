@@ -1,108 +1,91 @@
 #!/usr/bin/env bash
-# Builds the custom DC API matcher WASM and vendors it into app/src/main/assets/.
+# Builds the DC API presentation matcher WASM in a container and vendors it into
+# app/src/main/assets/.
 #
-# The matcher source lives in a sibling repo at ../dcapi-matcher (override with
-# MATCHER_REPO). It targets wasm32-unknown-unknown and is consumed at runtime by
-# DcRegistrySync, which hands the bytes to androidx.credentials.registry as the
-# custom matcher (replacing OpenId4VpRegistry's bundled WASM that doesn't handle
-# OpenID4VP transaction_data correctly).
+# The matcher source is vendored under matcher/upstream (CMWallet, see
+# matcher/UPSTREAM.md) with local deltas in matcher/patches. Everything about the
+# toolchain lives in matcher/Dockerfile, so the only host requirement is a
+# container engine — Podman by default, since this project's dev machines do not
+# have Docker installed.
 #
-# Usage: bash scripts/build-matcher.sh
+# Usage:
+#   bash scripts/build-matcher.sh            # build and install into assets/
+#   bash scripts/build-matcher.sh --verify   # build and compare against PROVENANCE
+#
+# Env:
+#   MATCHER_ENGINE  podman (default) | docker
+#   MATCHER_IMAGE   image tag to build/use
+#   TARGETS         space-separated build targets (default: openid4vp1_0)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MATCHER_REPO="${MATCHER_REPO:-$APP_ROOT/../dcapi-matcher}"
+MATCHER_DIR="$APP_ROOT/matcher"
 ASSET_DIR="$APP_ROOT/app/src/main/assets"
-ASSET_PATH="$ASSET_DIR/dcapi_matcher.wasm"
+ASSET_NAME="openid4vp1_0.wasm"
+PROVENANCE="$MATCHER_DIR/PROVENANCE"
 
-if [ ! -d "$MATCHER_REPO" ]; then
-    echo "matcher repo not found at $MATCHER_REPO" >&2
-    echo "set MATCHER_REPO=<path> to override" >&2
-    exit 1
+ENGINE="${MATCHER_ENGINE:-podman}"
+IMAGE="${MATCHER_IMAGE:-elpaso-matcher-toolchain:wasi33}"
+TARGETS="${TARGETS:-openid4vp1_0}"
+
+VERIFY=0
+if [ "${1:-}" = "--verify" ]; then
+    VERIFY=1
+elif [ -n "${1:-}" ]; then
+    echo "unknown argument: $1" >&2
+    exit 2
 fi
 
-# Homebrew rustc shadows rustup's on some setups and lacks the wasm32 target;
-# cargo's `--target` resolution goes via the rustc on PATH, so even
-# `rustup run stable cargo` can pick the wrong rustc if Homebrew's cargo/rustc
-# are earlier in PATH. Resolve both binaries by absolute path when rustup is
-# available so we always hit the toolchain where the wasm32 target lives.
-if command -v rustup >/dev/null 2>&1; then
-    TOOLCHAIN_BIN="$(rustup which cargo)"
-    TOOLCHAIN_BIN="${TOOLCHAIN_BIN%/*}"
-    CARGO=("$TOOLCHAIN_BIN/cargo")
-    export RUSTC="$TOOLCHAIN_BIN/rustc"
-else
-    CARGO=(cargo)
-fi
-
-echo "Building matcher in $MATCHER_REPO (cargo=${CARGO[*]}, rustc=${RUSTC:-cargo-default})..."
-(cd "$MATCHER_REPO" && "${CARGO[@]}" build --release \
-    --target wasm32-unknown-unknown \
-    -p aptitude-consortium-dcapi-matcher)
-
-SRC="$MATCHER_REPO/target/wasm32-unknown-unknown/release/aptitude-consortium-dcapi-matcher.wasm"
-if [ ! -f "$SRC" ]; then
-    echo "matcher wasm not found at $SRC after build" >&2
+command -v "$ENGINE" >/dev/null 2>&1 || {
+    echo "container engine '$ENGINE' not found; set MATCHER_ENGINE" >&2
     exit 1
+}
+
+BASE_IMAGE="$(cat "$MATCHER_DIR/base-image.txt")"
+OUT_DIR="$(mktemp -d)"
+trap 'rm -rf "$OUT_DIR"' EXIT
+
+echo "== building toolchain image ($ENGINE) =="
+"$ENGINE" build --build-arg BASE_IMAGE="$BASE_IMAGE" -t "$IMAGE" "$MATCHER_DIR"
+
+echo "== building matcher =="
+"$ENGINE" run --rm \
+    -e TARGETS="$TARGETS" \
+    -v "$MATCHER_DIR":/work:z \
+    -v "$OUT_DIR":/out:z \
+    "$IMAGE"
+
+BUILT="$OUT_DIR/$ASSET_NAME"
+[ -f "$BUILT" ] || { echo "expected $BUILT after build" >&2; exit 1; }
+BUILT_SHA="$(shasum -a 256 "$BUILT" | awk '{print $1}')"
+echo "built sha256: $BUILT_SHA ($(wc -c <"$BUILT") bytes)"
+
+RECORDED_SHA="$(awk -F'= *' '/^artifact_sha256/ {print $2}' "$PROVENANCE" | tr -d '[:space:]')"
+
+if [ "$VERIFY" = "1" ]; then
+    if [ -z "$RECORDED_SHA" ]; then
+        echo "PROVENANCE has no artifact_sha256 to verify against" >&2
+        exit 1
+    fi
+    if [ "$BUILT_SHA" != "$RECORDED_SHA" ]; then
+        echo "MISMATCH: built $BUILT_SHA != recorded $RECORDED_SHA" >&2
+        echo "Either the source changed (update PROVENANCE deliberately) or the" >&2
+        echo "toolchain/base image drifted (re-pin base-image.txt)." >&2
+        exit 1
+    fi
+    ASSET_SHA="$(shasum -a 256 "$ASSET_DIR/$ASSET_NAME" | awk '{print $1}')"
+    if [ "$ASSET_SHA" != "$RECORDED_SHA" ]; then
+        echo "MISMATCH: committed asset $ASSET_SHA != recorded $RECORDED_SHA" >&2
+        exit 1
+    fi
+    echo "verify OK: source, build and committed asset all agree"
+    exit 0
 fi
 
 mkdir -p "$ASSET_DIR"
-cp "$SRC" "$ASSET_PATH"
-
-# Strip exports that Play Services' Credman runtime doesn't expect (data-segment
-# globals emitted by the wasm linker). The runtime allowlist is `memory`,
-# `_start`, `main`; anything else surfaces as `IllegalArgumentException: Unknown
-# export` at request time and the wallet silently disappears from the picker.
-python3 - "$ASSET_PATH" <<'PY'
-import io, sys
-path = sys.argv[1]
-def leb_u(b, i):
-    n = 0; s = 0
-    while True:
-        x = b[i]; i += 1
-        n |= (x & 0x7f) << s
-        if not (x & 0x80):
-            return n, i
-        s += 7
-def leb_enc(n):
-    out = bytearray()
-    while True:
-        b = n & 0x7f; n >>= 7
-        if n == 0:
-            out.append(b); return bytes(out)
-        out.append(b | 0x80)
-d = open(path, 'rb').read()
-i = 8
-out = io.BytesIO(); out.write(d[:8])
-ALLOW = {'memory', '_start', 'main'}
-while i < len(d):
-    sid = d[i]; i += 1
-    sz, i = leb_u(d, i)
-    body = d[i:i+sz]; i += sz
-    if sid == 7:
-        bi = 0
-        cnt, bi = leb_u(body, bi)
-        exports = []
-        for _ in range(cnt):
-            nl, bi = leb_u(body, bi)
-            name = body[bi:bi+nl].decode(); bi += nl
-            kind = body[bi]; bi += 1
-            idx, bi = leb_u(body, bi)
-            exports.append((name, kind, idx))
-        kept = [e for e in exports if e[0] in ALLOW]
-        if len(kept) != len(exports):
-            print(f"strip: kept {[e[0] for e in kept]} dropped {[e[0] for e in exports if e[0] not in ALLOW]}")
-        nb = bytearray(); nb.extend(leb_enc(len(kept)))
-        for n, k, x in kept:
-            nb.extend(leb_enc(len(n)))
-            nb.extend(n.encode())
-            nb.append(k)
-            nb.extend(leb_enc(x))
-        out.write(bytes([7])); out.write(leb_enc(len(nb))); out.write(bytes(nb))
-    else:
-        out.write(bytes([sid])); out.write(leb_enc(sz)); out.write(body)
-open(path, 'wb').write(out.getvalue())
-PY
-
-echo "Vendored matcher: $ASSET_PATH ($(wc -c <"$ASSET_PATH") bytes)"
+cp "$BUILT" "$ASSET_DIR/$ASSET_NAME"
+echo "installed: $ASSET_DIR/$ASSET_NAME"
+echo
+echo "Record this in matcher/PROVENANCE:"
+echo "artifact_sha256  = $BUILT_SHA"
