@@ -32,6 +32,7 @@
     <string name="addoffer_issuing">Issuing credential…</string>
     <string name="addoffer_error_prefix">Error: %1$s</string>
     <string name="addoffer_failed_generic">Issuing failed</string>
+    <string name="addoffer_failed_resolve">Couldn\'t read this offer</string>
     <string name="addoffer_done">Done</string>
 
     <!-- Common -->

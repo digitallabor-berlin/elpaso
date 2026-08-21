@@ -25,6 +25,7 @@ import eu.europa.ec.eudi.openid4vci.AuthorizationRequestPrepared
 import eu.europa.ec.eudi.openid4vci.AuthorizedRequest
 import eu.europa.ec.eudi.openid4vci.CredentialConfiguration
 import eu.europa.ec.eudi.openid4vci.CredentialConfigurationIdentifier
+import eu.europa.ec.eudi.openid4vci.CredentialIssuerMetadataError
 import eu.europa.ec.eudi.openid4vci.CredentialResponseEncryptionPolicy
 import eu.europa.ec.eudi.openid4vci.DPoPUsage
 import eu.europa.ec.eudi.openid4vci.EncryptionSupportConfig
@@ -38,6 +39,8 @@ import eu.europa.ec.eudi.openid4vci.SdJwtVcCredential
 import eu.europa.ec.eudi.openid4vci.SubmissionOutcome
 import eu.europa.ec.eudi.openid4vci.TxCodeInputMode
 import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -92,7 +95,15 @@ class IssuanceClient(
         data class Failed(
             val message: String,
             val cause: Throwable? = null,
-        ) : State
+            val phase: Phase = Phase.Issuance,
+        ) : State {
+            /**
+             * Which half of the flow broke. A single `ErrorModal` serves every [Failed] state,
+             * so it needs this to pick an accurate headline: failing to *read* an offer is a
+             * different story for the user than failing to *issue* an accepted credential.
+             */
+            enum class Phase { Offer, Issuance }
+        }
 
         data object Issuing : State
 
@@ -213,7 +224,12 @@ class IssuanceClient(
             State.OfferResolved(issuerId, configurations, grant, trusted).also { state.value = it }
         }.onFailure {
             Log.w(LOG_TAG, "resolveOffer failed", it)
-            state.value = State.Failed(it.message ?: "Failed to resolve offer", it)
+            state.value =
+                State.Failed(
+                    describeOfferFailure(uri, it, "Failed to resolve offer"),
+                    it,
+                    State.Failed.Phase.Offer,
+                )
         }
 
     private fun grantOption(grants: Grants?): GrantOption {
@@ -536,6 +552,64 @@ class IssuanceClient(
         }
         return cause.message ?: fallback
     }
+
+    /**
+     * Turns a failed offer resolution into something actionable.
+     *
+     * `Issuer.make` parses `credential_configurations_supported` eagerly, so one malformed entry
+     * rejects the entire metadata document — and the resulting `JsonDecodingException` identifies
+     * only a JSON-path fragment (`$.0`), never the configuration at fault. When that is what
+     * happened, re-fetch the document and name the offenders via [IssuerMetadataDiagnostics].
+     *
+     * The extra request only ever happens on a path that has already failed, and its result is
+     * used solely for this message and the log. Nothing here repairs or re-interprets what the
+     * issuer sent: a non-conformant issuer still fails, it just fails legibly.
+     */
+    private suspend fun describeOfferFailure(
+        uri: Uri,
+        cause: Throwable,
+        fallback: String,
+    ): String {
+        // NOT causalChain(): the offer path wraps its real failure in a `reason` field rather
+        // than in `cause`, so a plain cause walk sees only a message-less shell. See
+        // OfferFailureChain.kt.
+        val chain = cause.offerFailureChain()
+        val rootMessage = cause.deepestMessage() ?: fallback
+
+        val unparseableMetadata =
+            chain.any { it is CredentialIssuerMetadataError.NonParseableCredentialIssuerMetadata }
+        if (!unparseableMetadata) return rootMessage
+
+        val findings =
+            OfferHandler
+                .extractIssuer(uri)
+                // extractIssuer yields a bare host for by-reference offers, which is not a
+                // resolvable base URL; only the by-value form gives us the issuer identifier.
+                ?.takeIf { it.startsWith("https://") }
+                ?.let { fetchIssuerMetadataDocument(it) }
+                ?.let { IssuerMetadataDiagnostics.diagnose(it) }
+                .orEmpty()
+
+        if (findings.isEmpty()) {
+            return "Issuer metadata is not valid OpenID4VCI 1.0: $rootMessage"
+        }
+        findings.forEach { Log.w(LOG_TAG, "issuer metadata defect — ${it.render()}") }
+        return buildString {
+            append("Issuer metadata is not valid OpenID4VCI 1.0. ")
+            append(findings.joinToString("; ") { it.render() })
+            append(". One malformed configuration rejects the whole metadata document, so every ")
+            append("credential from this issuer is affected. Underlying parser error: $rootMessage")
+        }
+    }
+
+    private suspend fun fetchIssuerMetadataDocument(issuerId: String): String? =
+        runCatching {
+            httpClient
+                .get("${issuerId.trimEnd('/')}/.well-known/openid-credential-issuer")
+                .bodyAsText()
+        }.onFailure {
+            Log.w(LOG_TAG, "diagnostic metadata re-fetch failed for $issuerId", it)
+        }.getOrNull()
 
     private fun Throwable.causalChain(): Sequence<Throwable> = generateSequence(this) { it.cause }
 

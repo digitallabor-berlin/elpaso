@@ -1,0 +1,29 @@
+{
+  "nextId": 3,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Verify compile and unit tests for offer-failure diagnostics",
+      "description": "Ledger tasks-01a02433 task 6. Run gradle :app:compileDebugKotlin and :app:testDebugUnitTest over the uncommitted issuer-metadata-diagnostics fix (IssuerMetadataDiagnostics.kt, OfferFailureChain.kt, IssuanceClient.describeOfferFailure, AddOfferFlow, addoffer_failed_resolve strings). Green = BUILD SUCCESSFUL and only the 2 known permanent TransactionDataTest Base64 NPE failures.",
+      "status": "completed",
+      "activeForm": "Verifying compile and unit tests",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787316498997,
+      "updatedAt": 1787316805859
+    },
+    {
+      "id": "2",
+      "subject": "Review the uncommitted diagnostics diff for spec compliance",
+      "description": "Read IssuerMetadataDiagnostics.kt, OfferFailureChain.kt, their tests, and the IssuanceClient/AddOfferFlow diffs. Confirm: pure-Kotlin (no android.util.* so JVM tests are meaningful), OpenID4VCI 1.0 per-format shape rules (mso_mdoc signing algs ints, dc+sd-jwt strings, doctype/vct required, unknown format flagged), one-shot metadata re-fetch honouring the 20s Ktor timeout, no secret leakage into logs/modal, trilingual string parity.",
+      "status": "completed",
+      "activeForm": "Reviewing the diagnostics diff",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787316499000,
+      "updatedAt": 1787316805862
+    }
+  ]
+}

@@ -33,6 +33,7 @@
     <string name="addoffer_error_prefix">Fehler: %1$s</string>
     <string name="addoffer_done">Fertig</string>
     <string name="addoffer_failed_generic">Ausstellung fehlgeschlagen</string>
+    <string name="addoffer_failed_resolve">Dieses Angebot konnte nicht gelesen werden</string>
 
     <!-- Common -->
     <string name="error_show_details">Technische Details</string>

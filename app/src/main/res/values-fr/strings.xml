@@ -32,6 +32,7 @@
     <string name="addoffer_issuing">Émission du justificatif…</string>
     <string name="addoffer_error_prefix">Erreur : %1$s</string>
     <string name="addoffer_failed_generic">Échec de l\'émission</string>
+    <string name="addoffer_failed_resolve">Impossible de lire cette offre</string>
     <string name="addoffer_done">Terminé</string>
 
     <!-- Communs -->

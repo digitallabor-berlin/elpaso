@@ -84,12 +84,17 @@ fun AddOfferFlow(
     val onScanned: (String) -> Unit = { raw ->
         val parsed = runCatching { android.net.Uri.parse(raw) }.getOrNull()
         when (parsed?.scheme?.lowercase()) {
-            "openid4vp", "eudi-openid4vp" -> scope.launch {
-                router.emit(DeepLink.PresentationRequest(parsed))
+            "openid4vp", "eudi-openid4vp" -> {
+                scope.launch {
+                    router.emit(DeepLink.PresentationRequest(parsed))
+                }
             }
-            else -> client.resolveOfferAsync(
-                parsed ?: android.net.Uri.parse(raw),
-            )
+
+            else -> {
+                client.resolveOfferAsync(
+                    parsed ?: android.net.Uri.parse(raw),
+                )
+            }
         }
     }
 
@@ -104,9 +109,10 @@ fun AddOfferFlow(
             // image fills the available content area edge-to-edge. Back IconButton replaces
             // the bottom Cancel button to avoid competing weight centers.
             Box(
-                modifier = Modifier
-                    .padding(inner)
-                    .fillMaxSize(),
+                modifier =
+                    Modifier
+                        .padding(inner)
+                        .fillMaxSize(),
             ) {
                 QrScannerView(
                     modifier = Modifier.fillMaxSize(),
@@ -130,17 +136,19 @@ fun AddOfferFlow(
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                    ),
+                    colors =
+                        TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                        ),
                 )
 
                 Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(24.dp)
-                        .fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp)
+                            .fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
                     shadowElevation = 1.dp,
@@ -155,7 +163,13 @@ fun AddOfferFlow(
 
                 if (s is IssuanceClient.State.Failed) {
                     ErrorModal(
-                        message = stringResource(R.string.addoffer_failed_generic),
+                        message =
+                            stringResource(
+                                when (s.phase) {
+                                    IssuanceClient.State.Failed.Phase.Offer -> R.string.addoffer_failed_resolve
+                                    IssuanceClient.State.Failed.Phase.Issuance -> R.string.addoffer_failed_generic
+                                },
+                            ),
                         technicalDetails = s.message,
                         onDismissRequest = client::reset,
                     )
@@ -165,9 +179,10 @@ fun AddOfferFlow(
         }
 
         Box(
-            modifier = Modifier
-                .padding(inner)
-                .fillMaxSize(),
+            modifier =
+                Modifier
+                    .padding(inner)
+                    .fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             when (s) {
@@ -178,6 +193,7 @@ fun AddOfferFlow(
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 }
+
                 is IssuanceClient.State.OfferResolved -> {
                     val txReq = (s.grant as? IssuanceClient.GrantOption.PreAuthorized)?.txCode
                     var txCode by remember { mutableStateOf("") }
@@ -188,10 +204,11 @@ fun AddOfferFlow(
                         }
                     }
                     Column(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
+                        modifier =
+                            Modifier
+                                .padding(24.dp)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
                     ) {
                         Text(stringResource(R.string.add_consent_title), style = MaterialTheme.typography.headlineSmall)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -213,8 +230,12 @@ fun AddOfferFlow(
                                 cfg = cfg,
                                 checked = checked,
                                 onToggle = {
-                                    selected = if (checked) selected - cfg.configurationId
-                                    else selected + cfg.configurationId
+                                    selected =
+                                        if (checked) {
+                                            selected - cfg.configurationId
+                                        } else {
+                                            selected + cfg.configurationId
+                                        }
                                 },
                             )
                             Spacer(modifier = Modifier.height(12.dp))
@@ -224,9 +245,12 @@ fun AddOfferFlow(
                             OutlinedTextField(
                                 value = txCode,
                                 onValueChange = { input ->
-                                    val filtered = if (txReq.inputMode == TxCodeInputMode.NUMERIC) {
-                                        input.filter { it.isDigit() }
-                                    } else input
+                                    val filtered =
+                                        if (txReq.inputMode == TxCodeInputMode.NUMERIC) {
+                                            input.filter { it.isDigit() }
+                                        } else {
+                                            input
+                                        }
                                     txCode = txReq.length?.let { filtered.take(it) } ?: filtered
                                 },
                                 label = { Text(stringResource(R.string.add_tx_code_label)) },
@@ -234,11 +258,15 @@ fun AddOfferFlow(
                                     Text(txReq.description ?: stringResource(R.string.add_tx_code_hint))
                                 },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = if (txReq.inputMode == TxCodeInputMode.NUMERIC) {
-                                        KeyboardType.NumberPassword
-                                    } else KeyboardType.Password,
-                                ),
+                                keyboardOptions =
+                                    KeyboardOptions(
+                                        keyboardType =
+                                            if (txReq.inputMode == TxCodeInputMode.NUMERIC) {
+                                                KeyboardType.NumberPassword
+                                            } else {
+                                                KeyboardType.Password
+                                            },
+                                    ),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -267,19 +295,28 @@ fun AddOfferFlow(
                         }
                     }
                 }
+
                 is IssuanceClient.State.AwaitingAuth -> {
                     val context = androidx.compose.ui.platform.LocalContext.current
                     androidx.compose.runtime.LaunchedEffect(s.authUri) {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, s.authUri)
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val intent =
+                            android.content
+                                .Intent(android.content.Intent.ACTION_VIEW, s.authUri)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         runCatching { context.startActivity(intent) }
                     }
                     Text(stringResource(R.string.addoffer_browser_continue))
                 }
-                IssuanceClient.State.Issuing -> Text(stringResource(R.string.addoffer_issuing))
-                is IssuanceClient.State.Done -> androidx.compose.runtime.LaunchedEffect(Unit) {
-                    client.reset()
-                    onDone()
+
+                IssuanceClient.State.Issuing -> {
+                    Text(stringResource(R.string.addoffer_issuing))
+                }
+
+                is IssuanceClient.State.Done -> {
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        client.reset()
+                        onDone()
+                    }
                 }
             }
         }
@@ -311,46 +348,58 @@ private fun OfferedCredentialCard(
     checked: Boolean,
     onToggle: () -> Unit,
 ) {
-    val display = remember(cfg.displayMetadataJson, cfg.displayName) {
-        CredentialDisplay.resolve(cfg.displayMetadataJson, cfg.displayName)
-    }
-    val art = remember(display, cfg.configurationId) {
-        PassArt.forDisplay(display, paletteSeed = cfg.configurationId)
-    }
-    val borderColor = if (checked) {
-        MaterialTheme.colorScheme.primary
-    } else Color.Transparent
+    val display =
+        remember(cfg.displayMetadataJson, cfg.displayName) {
+            CredentialDisplay.resolve(cfg.displayMetadataJson, cfg.displayName)
+        }
+    val art =
+        remember(display, cfg.configurationId) {
+            PassArt.forDisplay(display, paletteSeed = cfg.configurationId)
+        }
+    val borderColor =
+        if (checked) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            Color.Transparent
+        }
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(elevation = if (checked) 6.dp else 2.dp, shape = RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onToggle),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .shadow(elevation = if (checked) 6.dp else 2.dp, shape = RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .clickable(onClick = onToggle),
         shape = RoundedCornerShape(20.dp),
         color = Color.Transparent,
-        border = androidx.compose.foundation.BorderStroke(
-            width = if (checked) 2.dp else 0.dp,
-            color = borderColor,
-        ),
+        border =
+            androidx.compose.foundation.BorderStroke(
+                width = if (checked) 2.dp else 0.dp,
+                color = borderColor,
+            ),
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(132.dp)
-                .background(brush = art.baseGradient),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(132.dp)
+                    .background(brush = art.baseGradient),
         ) {
             // Gradient + sheen only. Issuer-supplied background images often embed their
             // own logos/copy that collide with the name + description we render on top —
             // skip them on this preview surface. Issuer colors still drive the gradient
             // via PassArt.fromDisplay; the logo on the top-right is preserved.
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .background(brush = art.sheenOverlay))
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(brush = art.sheenOverlay),
+            )
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(18.dp)
-                    .padding(end = 64.dp),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                        .padding(end = 64.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
@@ -376,10 +425,11 @@ private fun OfferedCredentialCard(
                 AsyncImage(
                     model = uri,
                     contentDescription = display.name,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(14.dp)
-                        .size(36.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(14.dp)
+                            .size(36.dp),
                     onError = {
                         Log.w("OfferedCredentialCard", "logo load failed for $uri", it.result.throwable)
                     },
@@ -389,9 +439,10 @@ private fun OfferedCredentialCard(
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(12.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(12.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Check,
