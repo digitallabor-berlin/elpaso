@@ -1,12 +1,13 @@
 package dev.digitallabor.elpaso.wallet.ui.present
 
 import android.util.Log
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,11 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Verified
@@ -53,13 +58,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
@@ -77,6 +85,7 @@ import dev.digitallabor.elpaso.wallet.domain.model.PassArt
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.pick
 import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
+import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
 import dev.digitallabor.elpaso.wallet.presentation.PresentationClient
 import dev.digitallabor.elpaso.wallet.presentation.txdata.DynamicTransactionDataBlock
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
@@ -182,14 +191,24 @@ fun PresentScreen(
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val titleRes = when (val s = state) {
-        is PresentationClient.State.Resolved -> if (s.transactionData.any { it is TransactionData.PaymentData || it is TransactionData.PasoPayment }) {
-            R.string.present_title_payment
-        } else {
-            R.string.present_title
+    val titleRes =
+        when (val s = state) {
+            is PresentationClient.State.Resolved -> {
+                if (s.transactionData.any {
+                        it is TransactionData.PaymentData ||
+                            it is TransactionData.PasoPayment
+                    }
+                ) {
+                    R.string.present_title_payment
+                } else {
+                    R.string.present_title
+                }
+            }
+
+            else -> {
+                R.string.present_title
+            }
         }
-        else -> R.string.present_title
-    }
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -214,14 +233,16 @@ fun PresentScreen(
         },
     ) { inner ->
         Box(
-            modifier = Modifier
-                .padding(inner)
-                .fillMaxSize(),
+            modifier =
+                Modifier
+                    .padding(inner)
+                    .fillMaxSize(),
             contentAlignment = Alignment.TopCenter,
         ) {
             when (val s = state) {
-                PresentationClient.State.Idle, PresentationClient.State.Dispatching ->
+                PresentationClient.State.Idle, PresentationClient.State.Dispatching -> {
                     LoadingState(label = stringResource(R.string.present_loading))
+                }
 
                 is PresentationClient.State.Failed -> {
                     if (isDcApi && onDcApiError != null) {
@@ -230,7 +251,7 @@ fun PresentScreen(
                     ErrorModal(
                         message = stringResource(R.string.present_failed_generic),
                         technicalDetails = s.message,
-                        onDismissRequest = onCancel
+                        onDismissRequest = onCancel,
                     )
                 }
 
@@ -245,28 +266,31 @@ fun PresentScreen(
                     suspend fun promptSignature(
                         match: DcqlMatcher.Match,
                         skipPromptIfUnlocked: Boolean,
-                    ): java.security.Signature = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                        biometric.authorize(
-                            activity = context as FragmentActivity,
-                            deviceKeyAlias = "cred_${match.credentialId}",
-                            skipPromptIfUnlocked = skipPromptIfUnlocked,
-                            onAuthorized = { sig ->
-                                if (cont.isActive) cont.resumeWith(Result.success(sig))
-                            },
-                            onError = { msg ->
-                                if (cont.isActive) cont.resumeWith(Result.failure(SecurityException(msg)))
-                            },
-                        )
-                    }
+                    ): java.security.Signature =
+                        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                            biometric.authorize(
+                                activity = context as FragmentActivity,
+                                deviceKeyAlias = "cred_${match.credentialId}",
+                                skipPromptIfUnlocked = skipPromptIfUnlocked,
+                                onAuthorized = { sig ->
+                                    if (cont.isActive) cont.resumeWith(Result.success(sig))
+                                },
+                                onError = { msg ->
+                                    if (cont.isActive) cont.resumeWith(Result.failure(SecurityException(msg)))
+                                },
+                            )
+                        }
 
                     val authorize: (List<DcqlMatcher.Match>) -> Unit = { matches ->
                         scope.launch {
                             try {
-                                val pairs = matches.map { m ->
-                                    m to promptSignature(m, route.systemPreAuthBiometric)
-                                }
+                                val pairs =
+                                    matches.map { m ->
+                                        m to promptSignature(m, route.systemPreAuthBiometric)
+                                    }
                                 if (isDcApi) {
-                                    client.authorizeDcApi(s, pairs)
+                                    client
+                                        .authorizeDcApi(s, pairs)
                                         .onSuccess { responseJson -> onDcApiResult?.invoke(responseJson) }
                                 } else {
                                     client.authorize(s, pairs)
@@ -276,9 +300,11 @@ fun PresentScreen(
                                 // so the Failed branch (and DC API onDcApiError plumbing) can
                                 // unwedge the activity instead of stalling on the loading
                                 // screen.
-                                client.state.value = PresentationClient.State.Failed(
-                                    e.message ?: "Authentication failed", e,
-                                )
+                                client.state.value =
+                                    PresentationClient.State.Failed(
+                                        e.message ?: "Authentication failed",
+                                        e,
+                                    )
                             }
                         }
                     }
@@ -288,20 +314,19 @@ fun PresentScreen(
                     // matcher's payment entry). A second review tap in our UI is just
                     // friction. We skip it when:
                     //  - the verifier is trusted OR developer mode is on, AND
-                    //  - every DCQL queryId has exactly one match (no disambiguation
-                    //    is needed — otherwise the user must still pick per query).
-                    val canAutoAuthorize = isDcApi &&
-                        (s.verifier.trusted || developerMode) &&
-                        s.matches.isNotEmpty() &&
-                        s.matches.groupBy { it.queryId }.all { (_, ms) -> ms.size == 1 }
+                    //  - there is exactly one candidate — nothing for the user to choose
+                    //    between, so the review screen would be pure friction on top of
+                    //    the system selector they already went through. More than one and
+                    //    the user must pick which credential is disclosed.
+                    val canAutoAuthorize =
+                        isDcApi &&
+                            (s.verifier.trusted || developerMode) &&
+                            s.candidates.size == 1
                     LaunchedEffect(s, canAutoAuthorize) {
                         if (canAutoAuthorize && !autoAuthorized) {
                             autoAuthorized = true
-                            // Preserve queryId order from the request so the verifier
-                            // sees presentations in a predictable order.
-                            val ordered = s.matches.map { it.queryId }.distinct()
-                                .mapNotNull { qid -> s.matches.firstOrNull { it.queryId == qid } }
-                            authorize(ordered)
+                            // Assignments are already in the request's queryId order.
+                            authorize(s.candidates.first().assignments)
                         }
                     }
 
@@ -354,82 +379,84 @@ private fun ResolvedContent(
     onDynamicScreenTitle: (String?) -> Unit,
 ) {
     val scroll = rememberScrollState()
-    // DCQL requests can span multiple queries (e.g. an SCA credential + an age
-    // credential in `credential_sets`). Track the user's pick per queryId so we
-    // can authorize all required credentials at once. Default to the first match
-    // per queryId — the user can still tap a card to swap within the same query.
-    var selectedByQuery by remember(resolved) {
-        mutableStateOf(
-            resolved.matches.groupBy { it.queryId }.mapValues { (_, ms) -> ms.first() }
-        )
-    }
-    val queryIds = remember(resolved) { resolved.matches.map { it.queryId }.distinct() }
-    val allQueriesSatisfied = queryIds.all { it in selectedByQuery }
+    // Each candidate is a complete, spec-valid assignment of credentials to the
+    // request's credential queries (OpenID4VP 1.0 §6.4.2, resolved in
+    // DcqlCandidateResolver). One carousel page per candidate means the page the user
+    // is looking at IS the selection — there is no separate per-query pick to track.
+    // Candidate 0 is the verifier's most-preferred option.
+    val pagerState = rememberPagerState(pageCount = { resolved.candidates.size })
+    val selectedCandidate = resolved.candidates.getOrNull(pagerState.currentPage)
+    val hasCandidate = selectedCandidate != null
 
     // Locale for resolving issuer-supplied claim labels and ui_labels. Recomputes
     // when the user changes language via Settings (SettingsViewModel.recreate
     // triggers a recomposition).
-    val languagePref by settings.languagePreference.collectAsState(initial = dev.digitallabor.elpaso.wallet.data.settings.LanguagePreference.System)
+    val languagePref by settings.languagePreference.collectAsState(
+        initial = dev.digitallabor.elpaso.wallet.data.settings.LanguagePreference.System,
+    )
     val locale = remember(languagePref) { LocaleApplier.effectiveLocale(languagePref) }
-    // Source credential for issuer metadata: the first selected credential overall.
-    // Real PaSO requests have one transaction_data entry per request, so this is
-    // unambiguous; if a future verifier sends multiple entries with different
-    // matching credentials we still pick the first selection — the spec doesn't
-    // define a multi-credential consent layout.
-    val sourceCredential: Credential? = queryIds
-        .asSequence()
-        .mapNotNull { selectedByQuery[it]?.credentialId }
-        .mapNotNull { credentialsById[it] }
-        .firstOrNull()
+    // First credential of the visible candidate. Because this feeds the
+    // LaunchedEffect below, swiping the carousel re-resolves issuer metadata: the
+    // transaction_data block, the dynamic screen title and the affirmative button
+    // label all follow the credential the user is actually about to disclose.
+    val sourceCredential: Credential? =
+        selectedCandidate
+            ?.assignments
+            ?.firstNotNullOfOrNull { credentialsById[it.credentialId] }
     // Per-entry metadata lookup, re-runs when the selected credential changes so
     // switching credentials updates the consent block live (additive — when no
     // metadata is found we fall back to the hardcoded renderer).
-    val dynamicMetadata = remember(resolved, sourceCredential, locale) {
-        mutableStateOf<Map<String, TransactionDataTypeMetadata>>(emptyMap())
-    }
-    LaunchedEffect(resolved, sourceCredential, locale) {
-        val src = sourceCredential ?: run {
-            dynamicMetadata.value = emptyMap()
-            onDynamicScreenTitle(null)
-            Log.d("PresentScreen", "no source credential; clearing dynamic title")
-            return@LaunchedEffect
+    val dynamicMetadata =
+        remember(resolved, sourceCredential, locale) {
+            mutableStateOf<Map<String, TransactionDataTypeMetadata>>(emptyMap())
         }
-        val byType = resolved.transactionData
-            .map { it.type }
-            .distinct()
-            .associateWith { type ->
-                credentialMetadataRepository.getTransactionDataType(src, locale, type)
+    LaunchedEffect(resolved, sourceCredential, locale) {
+        val src =
+            sourceCredential ?: run {
+                dynamicMetadata.value = emptyMap()
+                onDynamicScreenTitle(null)
+                Log.d("PresentScreen", "no source credential; clearing dynamic title")
+                return@LaunchedEffect
             }
-            .filterValues { it != null }
-            .mapValues { it.value!! }
+        val byType =
+            resolved.transactionData
+                .map { it.type }
+                .distinct()
+                .associateWith { type ->
+                    credentialMetadataRepository.getTransactionDataType(src, locale, type)
+                }.filterValues { it != null }
+                .mapValues { it.value!! }
         dynamicMetadata.value = byType
         Log.d("PresentScreen", "metadata loaded for credential=${src.id} types=${byType.keys}")
         // Lift transaction_title up to the screen-level app bar (paso-proof-metadata.md
         // §3.2 — "Title for the consent screen"). Use the first transaction_data entry
         // that resolved against metadata; that's the entry the user is consenting to.
-        val title = resolved.transactionData
-            .firstNotNullOfOrNull { entry ->
-                val md = byType[entry.type] ?: return@firstNotNullOfOrNull null
-                val label = md.uiLabels.transactionTitle.pick(locale) ?: return@firstNotNullOfOrNull null
-                val formatted = dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer
-                    .resolve(label, md, entry.payloadScope, locale)
-                when (formatted) {
-                    is ValueTypeFormatters.Formatted.PlainText -> formatted.text
-                    is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
-                    is ValueTypeFormatters.Formatted.Url -> formatted.href
-                    else -> null
-                }?.takeIf { it.isNotBlank() }
-            }
+        val title =
+            resolved.transactionData
+                .firstNotNullOfOrNull { entry ->
+                    val md = byType[entry.type] ?: return@firstNotNullOfOrNull null
+                    val label = md.uiLabels.transactionTitle.pick(locale) ?: return@firstNotNullOfOrNull null
+                    val formatted =
+                        dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer
+                            .resolve(label, md, entry.payloadScope, locale)
+                    when (formatted) {
+                        is ValueTypeFormatters.Formatted.PlainText -> formatted.text
+                        is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
+                        is ValueTypeFormatters.Formatted.Url -> formatted.href
+                        else -> null
+                    }?.takeIf { it.isNotBlank() }
+                }
         Log.d("PresentScreen", "dynamic title resolved to: $title")
         onDynamicScreenTitle(title)
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scroll)
-            .padding(horizontal = 20.dp)
-            .padding(top = 8.dp, bottom = 24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         VerifierHeroCard(
@@ -454,35 +481,35 @@ private fun ResolvedContent(
         // Untrusted verifier is a hard error (errorContainer); scroll/pick are soft
         // nudges (surfaceContainerHigh) so they don't compete with the trust warning.
         when {
-            !resolved.verifier.trusted -> GateHintCard(
-                icon = Icons.Filled.Warning,
-                text = stringResource(R.string.present_unknown_verifier),
-                severity = GateHintSeverity.Error,
-            )
-            !allQueriesSatisfied -> GateHintCard(
-                icon = Icons.Filled.TouchApp,
-                text = stringResource(R.string.present_pick_for_each_query),
-                severity = GateHintSeverity.Info,
-            )
-        }
+            !resolved.verifier.trusted -> {
+                GateHintCard(
+                    icon = Icons.Filled.Warning,
+                    text = stringResource(R.string.present_unknown_verifier),
+                    severity = GateHintSeverity.Error,
+                )
+            }
 
-        if (resolved.matches.isEmpty()) {
-            NoMatchCard(text = stringResource(R.string.present_no_match))
-        } else {
-            SectionHeading(text = stringResource(R.string.present_fields))
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                resolved.matches.forEach { m ->
-                    MatchPassCard(
-                        match = m,
-                        credential = credentialsById[m.credentialId],
-                        selected = selectedByQuery[m.queryId]?.credentialId == m.credentialId,
-                        onClick = { selectedByQuery = selectedByQuery + (m.queryId to m) },
-                    )
-                }
+            resolved.candidates.size > 1 -> {
+                GateHintCard(
+                    icon = Icons.Filled.TouchApp,
+                    text = stringResource(R.string.present_choose_credential),
+                    severity = GateHintSeverity.Info,
+                )
             }
         }
 
-        val authorizeEnabled = allQueriesSatisfied && resolved.verifier.trusted
+        if (resolved.candidates.isEmpty()) {
+            NoMatchCard(text = stringResource(R.string.present_no_match))
+        } else {
+            SectionHeading(text = stringResource(R.string.present_fields))
+            CandidateCarousel(
+                candidates = resolved.candidates,
+                credentialsById = credentialsById,
+                pagerState = pagerState,
+            )
+        }
+
+        val authorizeEnabled = hasCandidate && resolved.verifier.trusted
 
         // Issuer-supplied action labels (paso-proof-metadata.md §3.2). Take the label
         // from the first transaction_data entry that has matching metadata — that's
@@ -490,17 +517,39 @@ private fun ResolvedContent(
         // hardcoded label when no metadata is available. value_type is honoured per
         // §3.2 — mini_markdown / template:* in button labels are rendered with
         // AnnotatedString.
-        val primaryDynamicLabels: TransactionDataTypeMetadata? = resolved.transactionData
-            .firstNotNullOfOrNull { dynamicMetadata.value[it.type] }
-        val primaryPayload = resolved.transactionData
-            .firstOrNull { dynamicMetadata.value[it.type] != null }
-            ?.payloadScope
-        val dynamicAffirmative: ValueTypeFormatters.Formatted? = primaryDynamicLabels
-            ?.uiLabels?.affirmativeActionLabel?.pick(locale)
-            ?.let { dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(it, primaryDynamicLabels, primaryPayload, locale) }
-        val dynamicDenial: ValueTypeFormatters.Formatted? = primaryDynamicLabels
-            ?.uiLabels?.denialActionLabel?.pick(locale)
-            ?.let { dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(it, primaryDynamicLabels, primaryPayload, locale) }
+        val primaryDynamicLabels: TransactionDataTypeMetadata? =
+            resolved.transactionData
+                .firstNotNullOfOrNull { dynamicMetadata.value[it.type] }
+        val primaryPayload =
+            resolved.transactionData
+                .firstOrNull { dynamicMetadata.value[it.type] != null }
+                ?.payloadScope
+        val dynamicAffirmative: ValueTypeFormatters.Formatted? =
+            primaryDynamicLabels
+                ?.uiLabels
+                ?.affirmativeActionLabel
+                ?.pick(locale)
+                ?.let {
+                    dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
+                        it,
+                        primaryDynamicLabels,
+                        primaryPayload,
+                        locale,
+                    )
+                }
+        val dynamicDenial: ValueTypeFormatters.Formatted? =
+            primaryDynamicLabels
+                ?.uiLabels
+                ?.denialActionLabel
+                ?.pick(locale)
+                ?.let {
+                    dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
+                        it,
+                        primaryDynamicLabels,
+                        primaryPayload,
+                        locale,
+                    )
+                }
 
         ActionRow(
             authorizeLabel = dynamicAffirmative,
@@ -508,9 +557,10 @@ private fun ResolvedContent(
             denialLabel = dynamicDenial,
             authorizeEnabled = authorizeEnabled,
             onAuthorize = {
-                // Preserve queryId order from the request so the verifier sees
-                // presentations in a predictable order in its credential_sets evaluation.
-                onAuthorize(queryIds.mapNotNull { selectedByQuery[it] })
+                // The candidate's assignments are already in the request's queryId order,
+                // so the verifier sees presentations in a predictable order when it
+                // evaluates credential_sets.
+                selectedCandidate?.let { onAuthorize(it.assignments) }
             },
             onCancel = onCancel,
         )
@@ -531,14 +581,16 @@ private fun VerifierHeroCard(
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        colors =
+            CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
@@ -560,23 +612,29 @@ private fun VerifierHeroCard(
 }
 
 @Composable
-private fun TrustBadge(trusted: Boolean, untrustedWarning: String) {
-    val container = if (trusted) {
-        MaterialTheme.colorScheme.secondaryContainer
-    } else {
-        MaterialTheme.colorScheme.errorContainer
-    }
-    val onContainer = if (trusted) {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    } else {
-        MaterialTheme.colorScheme.onErrorContainer
-    }
+private fun TrustBadge(
+    trusted: Boolean,
+    untrustedWarning: String,
+) {
+    val container =
+        if (trusted) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.errorContainer
+        }
+    val onContainer =
+        if (trusted) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onErrorContainer
+        }
     val icon = if (trusted) Icons.Filled.Verified else Icons.Filled.Warning
-    val text = if (trusted) {
-        stringResource(R.string.present_verifier_trusted)
-    } else {
-        untrustedWarning
-    }
+    val text =
+        if (trusted) {
+            stringResource(R.string.present_verifier_trusted)
+        } else {
+            untrustedWarning
+        }
     Surface(
         shape = RoundedCornerShape(50),
         color = container,
@@ -636,14 +694,16 @@ private fun GateHintCard(
     text: String,
     severity: GateHintSeverity,
 ) {
-    val container = when (severity) {
-        GateHintSeverity.Error -> MaterialTheme.colorScheme.errorContainer
-        GateHintSeverity.Info -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-    val onContainer = when (severity) {
-        GateHintSeverity.Error -> MaterialTheme.colorScheme.onErrorContainer
-        GateHintSeverity.Info -> MaterialTheme.colorScheme.onSurface
-    }
+    val container =
+        when (severity) {
+            GateHintSeverity.Error -> MaterialTheme.colorScheme.errorContainer
+            GateHintSeverity.Info -> MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+    val onContainer =
+        when (severity) {
+            GateHintSeverity.Error -> MaterialTheme.colorScheme.onErrorContainer
+            GateHintSeverity.Info -> MaterialTheme.colorScheme.onSurface
+        }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -698,9 +758,10 @@ private fun ActionRow(
     ) {
         FilledTonalButton(
             onClick = onCancel,
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(64.dp),
             shape = RoundedCornerShape(20.dp),
         ) {
             FormattedButtonLabel(
@@ -711,9 +772,10 @@ private fun ActionRow(
         Button(
             enabled = authorizeEnabled,
             onClick = onAuthorize,
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(64.dp),
             shape = RoundedCornerShape(20.dp),
             colors = ButtonDefaults.buttonColors(),
         ) {
@@ -726,69 +788,82 @@ private fun ActionRow(
 }
 
 @Composable
-private fun FormattedButtonLabel(formatted: ValueTypeFormatters.Formatted?, fallback: String) {
+private fun FormattedButtonLabel(
+    formatted: ValueTypeFormatters.Formatted?,
+    fallback: String,
+) {
     val style = MaterialTheme.typography.titleMedium
     when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown -> Text(
-            text = dev.digitallabor.elpaso.wallet.presentation.txdata.renderMiniMarkdown(formatted.text),
-            style = style,
-            fontWeight = FontWeight.SemiBold,
-        )
-        is ValueTypeFormatters.Formatted.PlainText -> Text(
-            text = formatted.text.ifBlank { fallback },
-            style = style,
-            fontWeight = FontWeight.SemiBold,
-        )
-        is ValueTypeFormatters.Formatted.Url -> Text(
-            text = formatted.href,
-            style = style,
-            fontWeight = FontWeight.SemiBold,
-        )
+        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
+            Text(
+                text =
+                    dev.digitallabor.elpaso.wallet.presentation.txdata
+                        .renderMiniMarkdown(formatted.text),
+                style = style,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+
+        is ValueTypeFormatters.Formatted.PlainText -> {
+            Text(
+                text = formatted.text.ifBlank { fallback },
+                style = style,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+
+        is ValueTypeFormatters.Formatted.Url -> {
+            Text(
+                text = formatted.href,
+                style = style,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+
         is ValueTypeFormatters.Formatted.Image,
         is ValueTypeFormatters.Formatted.LabelOnly,
-        null -> Text(
-            text = fallback,
-            style = style,
-            fontWeight = FontWeight.SemiBold,
-        )
+        null,
+        -> {
+            Text(
+                text = fallback,
+                style = style,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
-private fun authorizeLabelFor(transactions: List<TransactionData>): Int = when {
-    // Any PaSO type — whether the hardcoded `urn:paso:sca:global:payment:1` shape
-    // or any new urn:paso:sca:* type the issuer declares — gets the payment-flavour
-    // fallback so the button still reads "Pay" / "Bezahlen" when metadata isn't
-    // available. The issuer-supplied affirmative_action_label always wins when present.
-    transactions.any { it is TransactionData.PasoPayment || it.isPaso() } -> R.string.present_authorize_pay
-    transactions.any { it is TransactionData.PaymentData } -> R.string.present_authorize_payment
-    transactions.any { it is TransactionData.QesAuthorization } -> R.string.present_authorize_sign
-    else -> R.string.present_authorize
-}
+private fun authorizeLabelFor(transactions: List<TransactionData>): Int =
+    when {
+        // Any PaSO type — whether the hardcoded `urn:paso:sca:global:payment:1` shape
+        // or any new urn:paso:sca:* type the issuer declares — gets the payment-flavour
+        // fallback so the button still reads "Pay" / "Bezahlen" when metadata isn't
+        // available. The issuer-supplied affirmative_action_label always wins when present.
+        transactions.any { it is TransactionData.PasoPayment || it.isPaso() } -> R.string.present_authorize_pay
+
+        transactions.any { it is TransactionData.PaymentData } -> R.string.present_authorize_payment
+
+        transactions.any { it is TransactionData.QesAuthorization } -> R.string.present_authorize_sign
+
+        else -> R.string.present_authorize
+    }
 
 @Composable
 private fun MatchPassCard(
     match: DcqlMatcher.Match,
     credential: Credential?,
-    selected: Boolean,
-    onClick: () -> Unit,
 ) {
-    // Selected state uses a shape morph (24→28dp) + primary-tinted border + check
-    // badge instead of a heavy 3dp ring. Same shape language as AddOfferFlow so the
-    // wallet's selection UX feels coherent.
-    val cornerDp = if (selected) 28.dp else 24.dp
-    val shape = RoundedCornerShape(cornerDp)
-    val borderColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else Color.Transparent
-    val borderWidth = if (selected) 2.dp else 0.dp
+    // The card no longer carries selection state: it lives on a carousel page, and the
+    // visible page is the selection. 28dp corners match the wallet's pass shape; the
+    // dots below the pager, not a border, communicate which option is active.
+    val shape = RoundedCornerShape(28.dp)
 
-    val baseModifier = Modifier
-        .fillMaxWidth()
-        .heightIn(min = 132.dp)
-        .shadow(elevation = if (selected) 6.dp else 2.dp, shape = shape)
-        .clip(shape)
-        .border(borderWidth, borderColor, shape)
-        .clickable(onClick = onClick)
+    val baseModifier =
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = CARD_MIN_HEIGHT)
+            .shadow(elevation = 6.dp, shape = shape)
+            .clip(shape)
 
     if (credential == null) {
         Box(
@@ -807,7 +882,6 @@ private fun MatchPassCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (selected) SelectedBadge(modifier = Modifier.align(Alignment.BottomEnd))
         }
         return
     }
@@ -827,17 +901,24 @@ private fun MatchPassCard(
         // would collapse the layers to 0dp and the gradient/sheen would never paint. With
         // matchParentSize, the Column below determines the height and the layers stretch
         // to match after measurement.
-        Box(modifier = Modifier
-            .matchParentSize()
-            .background(brush = art.baseGradient))
-        Box(modifier = Modifier
-            .matchParentSize()
-            .background(brush = art.sheenOverlay))
+        Box(
+            modifier =
+                Modifier
+                    .matchParentSize()
+                    .background(brush = art.baseGradient),
+        )
+        Box(
+            modifier =
+                Modifier
+                    .matchParentSize()
+                    .background(brush = art.sheenOverlay),
+        )
 
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.Top) {
@@ -862,9 +943,10 @@ private fun MatchPassCard(
                     AsyncImage(
                         model = uri,
                         contentDescription = display.name,
-                        modifier = Modifier
-                            .padding(start = 12.dp)
-                            .size(36.dp),
+                        modifier =
+                            Modifier
+                                .padding(start = 12.dp)
+                                .size(36.dp),
                         onError = { Log.w("MatchPassCardLogo", "logo load failed for $uri", it.result.throwable) },
                     )
                 }
@@ -883,32 +965,15 @@ private fun MatchPassCard(
                     match.requestedClaimPaths.forEach { path ->
                         ClaimRequestRow(
                             path = path,
-                            value = resolveClaim(claims.user, path)
-                                ?: resolveClaim(claims.protocol, path),
+                            value =
+                                resolveClaim(claims.user, path)
+                                    ?: resolveClaim(claims.protocol, path),
                             foreground = art.foreground,
                         )
                     }
                 }
             }
         }
-
-        if (selected) SelectedBadge(modifier = Modifier.align(Alignment.BottomEnd))
-    }
-}
-
-@Composable
-private fun SelectedBadge(modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(12.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Check,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.padding(4.dp).size(18.dp),
-        )
     }
 }
 
@@ -938,7 +1003,10 @@ private fun ClaimRequestRow(
     }
 }
 
-private fun resolveClaim(root: JsonObject, path: List<String>): JsonElement? {
+private fun resolveClaim(
+    root: JsonObject,
+    path: List<String>,
+): JsonElement? {
     var node: JsonElement = root
     for (segment in path) {
         node = (node as? JsonObject)?.get(segment) ?: return null
@@ -946,11 +1014,174 @@ private fun resolveClaim(root: JsonObject, path: List<String>): JsonElement? {
     return node
 }
 
-private fun formatClaimValue(value: JsonElement): String = when (value) {
-    is JsonNull -> "—"
-    is JsonPrimitive -> value.content
-    is JsonArray -> value.joinToString(", ") {
-        if (it is JsonPrimitive) it.content else it.toString()
+private fun formatClaimValue(value: JsonElement): String =
+    when (value) {
+        is JsonNull -> {
+            "—"
+        }
+
+        is JsonPrimitive -> {
+            value.content
+        }
+
+        is JsonArray -> {
+            value.joinToString(", ") {
+                if (it is JsonPrimitive) it.content else it.toString()
+            }
+        }
+
+        is JsonObject -> {
+            value.toString()
+        }
     }
-    is JsonObject -> value.toString()
+
+// Card metrics shared between MatchPassCard and the pager that sizes it. HorizontalPager
+// inside a verticalScroll receives unbounded vertical constraints, so it needs an explicit
+// height; deriving that height from the same constants the card lays itself out with is
+// what stops the two drifting apart when padding changes.
+private val CARD_MIN_HEIGHT = 132.dp
+private val CARD_PADDING = 18.dp
+private val CARD_CONTENT_SPACING = 10.dp
+private val CARD_HEADER_HEIGHT = 44.dp
+private val CARD_DIVIDER_HEIGHT = 1.dp
+private val CLAIM_ROW_HEIGHT = 40.dp
+private val CLAIM_ROW_SPACING = 6.dp
+private val CARD_STACK_SPACING = 12.dp
+
+private fun estimatedCardHeight(claimCount: Int): Dp {
+    val claims =
+        if (claimCount == 0) {
+            CLAIM_ROW_HEIGHT
+        } else {
+            CLAIM_ROW_HEIGHT * claimCount + CLAIM_ROW_SPACING * (claimCount - 1)
+        }
+    val total =
+        CARD_PADDING * 2 +
+            CARD_HEADER_HEIGHT +
+            CARD_CONTENT_SPACING +
+            CARD_DIVIDER_HEIGHT +
+            CARD_CONTENT_SPACING +
+            claims
+    return if (total < CARD_MIN_HEIGHT) CARD_MIN_HEIGHT else total
+}
+
+private fun estimatedCandidateHeight(candidate: PresentationCandidate): Dp {
+    val cards = candidate.assignments.map { estimatedCardHeight(it.requestedClaimPaths.size) }
+    val stacked = cards.fold(0.dp) { acc, h -> acc + h }
+    val gaps = if (cards.size > 1) CARD_STACK_SPACING * (cards.size - 1) else 0.dp
+    return stacked + gaps
+}
+
+/**
+ * One page per [PresentationCandidate]. The visible page is the selection, so there is no
+ * tap-to-select affordance — swiping (or tapping a dot) is how the user chooses.
+ *
+ * A pager rather than M3's HorizontalMultiBrowseCarousel: Material's carousel guidance
+ * says text-heavy items should use a series of cards instead, and the size-morphing
+ * carousel layouts would clip the claim values the user must read before consenting.
+ */
+@Composable
+private fun CandidateCarousel(
+    candidates: List<PresentationCandidate>,
+    credentialsById: Map<String, Credential>,
+    pagerState: PagerState,
+) {
+    val pageHeight = candidates.maxOf { estimatedCandidateHeight(it) }
+    // A peek of the neighbouring card is what signals "there is more to swipe through";
+    // with a single candidate there is nothing to peek at, so the page runs full width.
+    val peek = if (candidates.size > 1) 24.dp else 0.dp
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(pageHeight),
+            contentPadding = PaddingValues(horizontal = peek),
+            pageSpacing = 12.dp,
+        ) { page ->
+            val candidate = candidates[page]
+            val position =
+                stringResource(
+                    R.string.present_candidate_position,
+                    page + 1,
+                    candidates.size,
+                )
+            Column(
+                modifier = Modifier.semantics { contentDescription = position },
+                verticalArrangement = Arrangement.spacedBy(CARD_STACK_SPACING),
+            ) {
+                candidate.assignments.forEach { assignment ->
+                    MatchPassCard(
+                        match = assignment,
+                        credential = credentialsById[assignment.credentialId],
+                    )
+                }
+            }
+        }
+
+        if (candidates.size > 1) {
+            CandidateDots(
+                count = candidates.size,
+                selected = pagerState.currentPage,
+                onSelect = { pagerState.requestScrollToPage(it) },
+            )
+        }
+    }
+}
+
+/**
+ * Page indicator that doubles as the non-swipe path to every candidate. Material requires
+ * carousels on vertically-scrolling pages to be reachable without horizontal scrolling; we
+ * satisfy that with tappable dots rather than a "Show all" screen, because the candidate
+ * count here is two or three rather than ten. Each dot carries a 48dp touch target.
+ */
+@Composable
+private fun CandidateDots(
+    count: Int,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(count) { index ->
+            val active = index == selected
+            val width by animateDpAsState(
+                targetValue = if (active) 24.dp else 8.dp,
+                label = "candidateDotWidth",
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .size(48.dp)
+                        .clickable(
+                            role = Role.Tab,
+                            onClick = { onSelect(index) },
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .width(width)
+                            .height(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (active) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                },
+                            ),
+                )
+            }
+        }
+    }
 }
