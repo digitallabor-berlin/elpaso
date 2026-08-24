@@ -68,6 +68,8 @@
     <string name="present_verifier_trusted">Vérificateur de confiance</string>
     <string name="present_choose_credential">Balayez pour choisir le justificatif à partager</string>
     <string name="present_candidate_position">Option %1$d sur %2$d</string>
+    <string name="present_payment_requested_by">Demandé par %1$s</string>
+    <string name="present_choose_payment_credential">Balayez pour choisir la carte qui paie</string>
     <string name="paso_request_must_be_signed">Les demandes de paiement doivent être signées par le vérificateur.</string>
     <string name="paso_multiple_entries_not_supported">Les demandes de paiement multi-justificatifs ne sont pas prises en charge.</string>
 

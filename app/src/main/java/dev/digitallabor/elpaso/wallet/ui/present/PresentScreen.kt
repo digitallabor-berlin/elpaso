@@ -194,11 +194,7 @@ fun PresentScreen(
     val titleRes =
         when (val s = state) {
             is PresentationClient.State.Resolved -> {
-                if (s.transactionData.any {
-                        it is TransactionData.PaymentData ||
-                            it is TransactionData.PasoPayment
-                    }
-                ) {
+                if (paymentSummaryOf(s.transactionData) != null) {
                     R.string.present_title_payment
                 } else {
                     R.string.present_title
@@ -450,6 +446,72 @@ private fun ResolvedContent(
         onDynamicScreenTitle(title)
     }
 
+    // Issuer-supplied action labels (paso-proof-metadata.md §3.2). Take the label
+    // from the first transaction_data entry that has matching metadata — that's
+    // the entry the user is consenting to. Falls back to the type-specific
+    // hardcoded label when no metadata is available. value_type is honoured per
+    // §3.2 — mini_markdown / template:* in button labels are rendered with
+    // AnnotatedString.
+    //
+    // Hoisted above the layout branch below because the payment screen and the
+    // general consent screen share the same action row.
+    val primaryDynamicLabels: TransactionDataTypeMetadata? =
+        resolved.transactionData
+            .firstNotNullOfOrNull { dynamicMetadata.value[it.type] }
+    val primaryPayload =
+        resolved.transactionData
+            .firstOrNull { dynamicMetadata.value[it.type] != null }
+            ?.payloadScope
+    val dynamicAffirmative: ValueTypeFormatters.Formatted? =
+        primaryDynamicLabels
+            ?.uiLabels
+            ?.affirmativeActionLabel
+            ?.pick(locale)
+            ?.let {
+                dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
+                    it,
+                    primaryDynamicLabels,
+                    primaryPayload,
+                    locale,
+                )
+            }
+    val dynamicDenial: ValueTypeFormatters.Formatted? =
+        primaryDynamicLabels
+            ?.uiLabels
+            ?.denialActionLabel
+            ?.pick(locale)
+            ?.let {
+                dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
+                    it,
+                    primaryDynamicLabels,
+                    primaryPayload,
+                    locale,
+                )
+            }
+    val authorizeFallback = stringResource(authorizeLabelFor(resolved.transactionData))
+
+    // A payment request gets a purpose-built screen: amount and payee as the hero, the
+    // paying card in a carousel, and none of the claim-path detail below. Non-payment
+    // requests keep that detail — for attribute sharing it *is* the consent record,
+    // whereas a payer approving an amount to a merchant is answering a different question.
+    val paymentSummary = remember(resolved) { paymentSummaryOf(resolved.transactionData) }
+    if (paymentSummary != null) {
+        PaymentConsentContent(
+            summary = paymentSummary,
+            verifierName = resolved.verifier.displayLabel,
+            trusted = resolved.verifier.trusted,
+            candidates = resolved.candidates,
+            credentialsById = credentialsById,
+            pagerState = pagerState,
+            authorizeLabel = dynamicAffirmative,
+            authorizeFallback = authorizeFallback,
+            denialLabel = dynamicDenial,
+            onAuthorize = { selectedCandidate?.let { onAuthorize(it.assignments) } },
+            onCancel = onCancel,
+        )
+        return
+    }
+
     Column(
         modifier =
             Modifier
@@ -511,49 +573,9 @@ private fun ResolvedContent(
 
         val authorizeEnabled = hasCandidate && resolved.verifier.trusted
 
-        // Issuer-supplied action labels (paso-proof-metadata.md §3.2). Take the label
-        // from the first transaction_data entry that has matching metadata — that's
-        // the entry the user is consenting to. Falls back to the type-specific
-        // hardcoded label when no metadata is available. value_type is honoured per
-        // §3.2 — mini_markdown / template:* in button labels are rendered with
-        // AnnotatedString.
-        val primaryDynamicLabels: TransactionDataTypeMetadata? =
-            resolved.transactionData
-                .firstNotNullOfOrNull { dynamicMetadata.value[it.type] }
-        val primaryPayload =
-            resolved.transactionData
-                .firstOrNull { dynamicMetadata.value[it.type] != null }
-                ?.payloadScope
-        val dynamicAffirmative: ValueTypeFormatters.Formatted? =
-            primaryDynamicLabels
-                ?.uiLabels
-                ?.affirmativeActionLabel
-                ?.pick(locale)
-                ?.let {
-                    dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
-                        it,
-                        primaryDynamicLabels,
-                        primaryPayload,
-                        locale,
-                    )
-                }
-        val dynamicDenial: ValueTypeFormatters.Formatted? =
-            primaryDynamicLabels
-                ?.uiLabels
-                ?.denialActionLabel
-                ?.pick(locale)
-                ?.let {
-                    dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
-                        it,
-                        primaryDynamicLabels,
-                        primaryPayload,
-                        locale,
-                    )
-                }
-
         ActionRow(
             authorizeLabel = dynamicAffirmative,
-            authorizeFallback = stringResource(authorizeLabelFor(resolved.transactionData)),
+            authorizeFallback = authorizeFallback,
             denialLabel = dynamicDenial,
             authorizeEnabled = authorizeEnabled,
             onAuthorize = {
@@ -741,7 +763,7 @@ private fun SectionHeading(text: String) {
 }
 
 @Composable
-private fun ActionRow(
+internal fun ActionRow(
     authorizeLabel: ValueTypeFormatters.Formatted?,
     authorizeFallback: String,
     authorizeEnabled: Boolean,
@@ -1138,7 +1160,7 @@ private fun CandidateCarousel(
  * count here is two or three rather than ten. Each dot carries a 48dp touch target.
  */
 @Composable
-private fun CandidateDots(
+internal fun CandidateDots(
     count: Int,
     selected: Int,
     onSelect: (Int) -> Unit,

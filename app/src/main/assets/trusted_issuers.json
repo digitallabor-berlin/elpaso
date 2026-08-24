@@ -3,18 +3,13 @@
   "note": "Replace with the actual EUDI dev/production issuer set before going live. Fingerprints are SHA-256 of DER-encoded leaf certs (lowercase hex).",
   "issuers": [
     {
+      "id": "https://foundry.digitallabor.dev",
+      "label": "digitallabor.berlin Reference Issuer (dev)",
+      "x5c_sha256_fingerprints": []
+    },
+    {
       "id": "https://issuer.eudiw.dev",
       "label": "EUDI Reference Issuer (dev)",
-      "x5c_sha256_fingerprints": []
-    },
-    {
-      "id": "https://eudiplo-paso.digitallabor.dev/issuers/test-tenant",
-      "label": "EUDIPLO PASO (test-tenant)",
-      "x5c_sha256_fingerprints": []
-    },
-    {
-      "id": "https://eudiplo.digitallabor.dev/issuers/digitallabor",
-      "label": "Digital Labor PaSO Issuer",
       "x5c_sha256_fingerprints": []
     }
   ]

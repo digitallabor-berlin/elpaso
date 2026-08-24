@@ -7,6 +7,12 @@
       "label": "EUDI Reference Verifier (dev)",
       "x509_sans": ["verifier.eudiw.dev"],
       "x5c_sha256_fingerprints": []
+    },
+    {
+      "id": "foundry.digitallabor.dev",
+      "label": "digitallabor.berlin Reference Verifier (dev)",
+      "x509_sans": ["foundry.digitallabor.dev"],
+      "x5c_sha256_fingerprints": []
     }
   ]
 }

@@ -25,10 +25,11 @@ fun TransactionDataBlock(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -37,8 +38,10 @@ fun TransactionDataBlock(
             when (item) {
                 is TransactionData.PaymentData -> {
                     Text(stringResource(R.string.tx_data_payment_heading), style = MaterialTheme.typography.labelLarge)
-                    val amountLine = listOfNotNull(item.currency, item.amount)
-                        .joinToString(" ").ifBlank { stringResource(R.string.tx_data_amount_missing) }
+                    val amountLine =
+                        listOfNotNull(item.currency, item.amount)
+                            .joinToString(" ")
+                            .ifBlank { stringResource(R.string.tx_data_amount_missing) }
                     Text(amountLine, style = MaterialTheme.typography.displaySmall)
                     item.payeeName?.let {
                         Text(stringResource(R.string.tx_data_payee, it), style = MaterialTheme.typography.titleMedium)
@@ -50,6 +53,7 @@ fun TransactionDataBlock(
                         Text(stringResource(R.string.tx_data_reference, it), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+
                 is TransactionData.PasoPayment -> {
                     Text(stringResource(R.string.tx_data_payment_heading), style = MaterialTheme.typography.labelLarge)
                     Text(formatIsoCurrencyAmount(item.amount, item.currency, item.amountRaw), style = MaterialTheme.typography.displaySmall)
@@ -59,6 +63,7 @@ fun TransactionDataBlock(
                         Text(stringResource(R.string.tx_data_reference, it), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+
                 is TransactionData.QesAuthorization -> {
                     Text(stringResource(R.string.tx_data_qes_heading), style = MaterialTheme.typography.labelLarge)
                     item.signatureFormat?.let {
@@ -71,11 +76,23 @@ fun TransactionDataBlock(
                     )
                     item.tosText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
+
+                is TransactionData.EudiScaPayment -> {
+                    // Fallback path only: a payment request is normally routed to the
+                    // dedicated payment consent screen, which shows the amount as the hero.
+                    Text(stringResource(R.string.tx_data_payment_heading), style = MaterialTheme.typography.labelLarge)
+                    Text(item.amountDisplay, style = MaterialTheme.typography.displaySmall)
+                    Text(stringResource(R.string.tx_data_payee, item.payeeName), style = MaterialTheme.typography.titleMedium)
+                }
+
                 is TransactionData.Invalid -> {
                     Text(stringResource(R.string.tx_data_invalid_heading), style = MaterialTheme.typography.labelLarge)
                     Text(stringResource(R.string.tx_data_invalid_body), style = MaterialTheme.typography.bodyMedium)
                 }
-                is TransactionData.Generic -> GenericPayloadForm(item)
+
+                is TransactionData.Generic -> {
+                    GenericPayloadForm(item)
+                }
             }
         }
     }
@@ -98,7 +115,10 @@ private fun GenericPayloadForm(item: TransactionData.Generic) {
 }
 
 @Composable
-private fun PayloadEntries(obj: kotlinx.serialization.json.JsonObject, depth: Int) {
+private fun PayloadEntries(
+    obj: kotlinx.serialization.json.JsonObject,
+    depth: Int,
+) {
     val indent = (depth * 12).dp
     obj.forEach { (key, value) ->
         when (value) {
@@ -111,37 +131,54 @@ private fun PayloadEntries(obj: kotlinx.serialization.json.JsonObject, depth: In
                 )
                 PayloadEntries(value, depth + 1)
             }
-            else -> Text(
-                text = "${humaniseKey(key)}: ${stringifyLeaf(value)}",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(start = indent),
-            )
+
+            else -> {
+                Text(
+                    text = "${humaniseKey(key)}: ${stringifyLeaf(value)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = indent),
+                )
+            }
         }
     }
 }
 
-private fun humaniseKey(key: String): String = key
-    .replace('_', ' ')
-    .replaceFirstChar { it.uppercaseChar() }
+private fun humaniseKey(key: String): String =
+    key
+        .replace('_', ' ')
+        .replaceFirstChar { it.uppercaseChar() }
 
-private fun stringifyLeaf(value: kotlinx.serialization.json.JsonElement): String = when (value) {
-    is kotlinx.serialization.json.JsonPrimitive -> value.content
-    is kotlinx.serialization.json.JsonArray -> value.joinToString(", ") { stringifyLeaf(it) }
-    else -> value.toString()
-}
+private fun stringifyLeaf(value: kotlinx.serialization.json.JsonElement): String =
+    when (value) {
+        is kotlinx.serialization.json.JsonPrimitive -> value.content
+        is kotlinx.serialization.json.JsonArray -> value.joinToString(", ") { stringifyLeaf(it) }
+        else -> value.toString()
+    }
 
 private fun maskAccount(raw: String): String {
     if (raw.length <= 6) return raw
     return raw.take(4) + "****" + raw.takeLast(4)
 }
 
-private fun formatIsoCurrencyAmount(amount: String, currency: String, fallback: String): String {
+/**
+ * Formats an ISO-suffixed amount (`"592.68" + "EUR"`) for display, falling back to the
+ * verbatim string the verifier sent when the currency is unknown or the amount is not a
+ * number. Internal rather than private because the payment consent screen renders the same
+ * amount and must not format it differently from this block.
+ */
+internal fun formatIsoCurrencyAmount(
+    amount: String,
+    currency: String,
+    fallback: String,
+): String {
     if (currency.isBlank()) return fallback
     return try {
         val value = amount.toBigDecimal()
-        NumberFormat.getCurrencyInstance(Locale.getDefault()).apply {
-            this.currency = Currency.getInstance(currency)
-        }.format(value)
+        NumberFormat
+            .getCurrencyInstance(Locale.getDefault())
+            .apply {
+                this.currency = Currency.getInstance(currency)
+            }.format(value)
     } catch (_: NumberFormatException) {
         fallback
     } catch (_: IllegalArgumentException) {

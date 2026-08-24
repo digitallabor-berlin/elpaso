@@ -223,6 +223,7 @@ class PresentationClient(
                 UiTransactionData.PaymentData.TYPE,
                 UiTransactionData.QesAuthorization.TYPE,
                 UiTransactionData.PasoPayment.TYPE,
+                UiTransactionData.EudiScaPayment.TYPE,
             )
         val dynamic = credentialMetadataRepository.knownTransactionDataTypes()
         val allTypes = baseline + dynamic + extraTypes
@@ -1301,6 +1302,7 @@ class PresentationClient(
         when (t) {
             is UiTransactionData.PaymentData -> "Payment: ${t.amount} ${t.currency} to ${t.payeeName ?: "(payee)"}"
             is UiTransactionData.PasoPayment -> "Payment: ${t.amountRaw} to ${t.payeeName}"
+            is UiTransactionData.EudiScaPayment -> "Payment: ${t.amountDisplay} to ${t.payeeName}"
             is UiTransactionData.QesAuthorization -> "QES: ${t.documentDigests.size} document(s)"
             is UiTransactionData.Generic -> "Transaction: ${t.type}"
             is UiTransactionData.Invalid -> "Invalid transaction data (type=${t.type})"
