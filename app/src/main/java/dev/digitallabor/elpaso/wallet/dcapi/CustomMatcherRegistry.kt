@@ -17,7 +17,7 @@ internal class CustomMatcherRegistry(
     credentialsJson: ByteArray,
     matcherWasm: ByteArray,
 ) : DigitalCredentialRegistry(
-    id = id,
-    credentials = credentialsJson,
-    matcher = matcherWasm,
-)
+        id = id,
+        credentials = credentialsJson,
+        matcher = matcherWasm,
+    )
