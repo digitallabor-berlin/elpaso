@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface_light">#FFF6F6F6</color>
-    <color name="surface_dark">#FF101013</color>
+    <!-- Cold-launch window background. Approximates the M3 surface; the real surface is
+         wallpaper-derived at runtime, so an exact match is not possible here. -->
+    <color name="window_background">#FFF6F6F6</color>
 </resources>

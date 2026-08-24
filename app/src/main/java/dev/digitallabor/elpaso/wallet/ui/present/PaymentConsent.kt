@@ -76,10 +76,13 @@ internal data class PaymentSummary(
 private const val MASKED_ACCOUNT_CLAIM = "masked_iban"
 
 /**
- * ID-1 aspect ratio (ISO/IEC 7810 — 85.60 × 53.98 mm). The payment card is a stand-in for a
+ * ID-1 aspect ratio (ISO/IEC 7810 — 85.60 × 53.98 mm). A credential card is a stand-in for a
  * physical card, so it carries the physical proportions rather than an arbitrary height.
+ *
+ * Shared with the general consent screen in `PresentScreen.kt` (same package) so both screens'
+ * cards are proportioned identically by construction rather than by two constants agreeing.
  */
-private const val CARD_ASPECT_RATIO = 1.586f
+internal const val CARD_ASPECT_RATIO = 1.586f
 
 /**
  * Returns the payment summary for the first payment-flavoured entry in the request, or null
@@ -170,7 +173,7 @@ internal fun PaymentConsentContent(
         }
 
         if (candidates.isEmpty()) {
-            NoPaymentCredentialNotice()
+            NoMatchNotice()
         } else {
             PaymentCardCarousel(
                 candidates = candidates,
@@ -223,11 +226,13 @@ private fun AmountHero(summary: PaymentSummary) {
 
 /**
  * Who is asking, as one quiet line rather than a card. The verifier matters for trust but
- * competes with the amount for attention if it is given equal visual weight; the trust
- * state still escalates to [UntrustedNotice] when it is not verified.
+ * competes with the screen's subject for attention if it is given equal visual weight; the
+ * trust state still escalates to a full notice card when it is not verified.
+ *
+ * Shared with the general consent screen so "who is asking" reads the same on both.
  */
 @Composable
-private fun RequesterLine(
+internal fun RequesterLine(
     verifierName: String,
     trusted: Boolean,
 ) {
@@ -249,7 +254,7 @@ private fun RequesterLine(
         )
         Spacer(modifier = Modifier.size(8.dp))
         Text(
-            text = stringResource(R.string.present_payment_requested_by, verifierName),
+            text = stringResource(R.string.present_requested_by, verifierName),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -258,8 +263,12 @@ private fun RequesterLine(
     }
 }
 
+/**
+ * Hard trust failure, escalated to a full-width error card. Shared with the general consent
+ * screen — an untrusted verifier is the same warning whatever is being asked for.
+ */
 @Composable
-private fun UntrustedNotice() {
+internal fun UntrustedNotice() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -286,8 +295,11 @@ private fun UntrustedNotice() {
     }
 }
 
+/**
+ * Nothing in the wallet satisfies the request. Shared with the general consent screen.
+ */
 @Composable
-private fun NoPaymentCredentialNotice() {
+internal fun NoMatchNotice() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),

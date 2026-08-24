@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -403,7 +404,7 @@ private fun OfferedCredentialCard(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(132.dp)
+                    .aspectRatio(CARD_ASPECT_RATIO)
                     .background(brush = art.baseGradient),
         ) {
             // Gradient + sheen only. Issuer-supplied background images often embed their
@@ -477,3 +478,6 @@ private fun OfferedCredentialCard(
         }
     }
 }
+
+/** Card aspect ratio — ID-1 (credit card) proportions, matching PaymentConsent. */
+private const val CARD_ASPECT_RATIO = 1.586f

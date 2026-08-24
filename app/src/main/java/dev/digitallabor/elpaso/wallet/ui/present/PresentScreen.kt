@@ -6,14 +6,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,15 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -58,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -66,8 +61,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
@@ -77,6 +72,7 @@ import dev.digitallabor.elpaso.wallet.data.settings.LocaleApplier
 import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
+import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
 import dev.digitallabor.elpaso.wallet.domain.claims.CredentialClaims
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.CredentialDisplay
@@ -101,6 +97,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.koin.compose.koinInject
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -521,11 +518,9 @@ private fun ResolvedContent(
                 .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        VerifierHeroCard(
-            label = stringResource(R.string.present_verifier),
+        RequesterLine(
             verifierName = resolved.verifier.displayLabel,
             trusted = resolved.verifier.trusted,
-            untrustedWarning = stringResource(R.string.present_unknown_verifier),
         )
 
         resolved.transactionData.forEach { td ->
@@ -537,38 +532,34 @@ private fun ResolvedContent(
             }
         }
 
-        // Gate hint sits directly below the transaction_data section so the user
-        // reads the warning in context with what they're consenting to — not as a
-        // footer disclaimer tucked between the credential picker and the button.
-        // Untrusted verifier is a hard error (errorContainer); scroll/pick are soft
-        // nudges (surfaceContainerHigh) so they don't compete with the trust warning.
-        when {
-            !resolved.verifier.trusted -> {
-                GateHintCard(
-                    icon = Icons.Filled.Warning,
-                    text = stringResource(R.string.present_unknown_verifier),
-                    severity = GateHintSeverity.Error,
-                )
-            }
-
-            resolved.candidates.size > 1 -> {
-                GateHintCard(
-                    icon = Icons.Filled.TouchApp,
-                    text = stringResource(R.string.present_choose_credential),
-                    severity = GateHintSeverity.Info,
-                )
-            }
+        // The trust warning sits directly below the transaction_data section so the user
+        // reads it in context with what they're consenting to — not as a footer disclaimer
+        // tucked between the credential picker and the button. The "swipe to choose" nudge
+        // is not a warning and belongs next to the carousel it describes, so it lives
+        // inside CandidateCarousel instead of competing here.
+        if (!resolved.verifier.trusted) {
+            UntrustedNotice()
         }
 
         if (resolved.candidates.isEmpty()) {
-            NoMatchCard(text = stringResource(R.string.present_no_match))
+            NoMatchNotice()
         } else {
-            SectionHeading(text = stringResource(R.string.present_fields))
             CandidateCarousel(
                 candidates = resolved.candidates,
                 credentialsById = credentialsById,
                 pagerState = pagerState,
             )
+
+            // Keyed off the visible page, so swiping the carousel re-renders this list and
+            // it always describes the credentials actually about to be disclosed.
+            selectedCandidate?.let { candidate ->
+                SectionHeading(text = stringResource(R.string.present_fields))
+                RequestedInformationSection(
+                    candidate = candidate,
+                    credentialsById = credentialsById,
+                    locale = locale,
+                )
+            }
         }
 
         val authorizeEnabled = hasCandidate && resolved.verifier.trusted
@@ -586,169 +577,6 @@ private fun ResolvedContent(
             },
             onCancel = onCancel,
         )
-    }
-}
-
-@Composable
-private fun VerifierHeroCard(
-    label: String,
-    verifierName: String,
-    trusted: Boolean,
-    untrustedWarning: String,
-) {
-    // Compact identity card — the transaction_data block below is the hero, so
-    // the verifier just needs to answer "who is asking" without dominating. Trust
-    // state stays as a chip so warnings remain glanceable. 20dp corners match
-    // the other tonal cards on screen for one consistent shape language.
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors =
-            CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 1.sp,
-            )
-            Text(
-                text = verifierName,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            TrustBadge(trusted = trusted, untrustedWarning = untrustedWarning)
-        }
-    }
-}
-
-@Composable
-private fun TrustBadge(
-    trusted: Boolean,
-    untrustedWarning: String,
-) {
-    val container =
-        if (trusted) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.errorContainer
-        }
-    val onContainer =
-        if (trusted) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onErrorContainer
-        }
-    val icon = if (trusted) Icons.Filled.Verified else Icons.Filled.Warning
-    val text =
-        if (trusted) {
-            stringResource(R.string.present_verifier_trusted)
-        } else {
-            untrustedWarning
-        }
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = container,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = onContainer,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = text,
-                color = onContainer,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NoMatchCard(text: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.errorContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Text(
-                text = text,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-    }
-}
-
-private enum class GateHintSeverity { Error, Info }
-
-@Composable
-private fun GateHintCard(
-    icon: ImageVector,
-    text: String,
-    severity: GateHintSeverity,
-) {
-    val container =
-        when (severity) {
-            GateHintSeverity.Error -> MaterialTheme.colorScheme.errorContainer
-            GateHintSeverity.Info -> MaterialTheme.colorScheme.surfaceContainerHigh
-        }
-    val onContainer =
-        when (severity) {
-            GateHintSeverity.Error -> MaterialTheme.colorScheme.onErrorContainer
-            GateHintSeverity.Info -> MaterialTheme.colorScheme.onSurface
-        }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = container,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = onContainer,
-                modifier = Modifier.size(24.dp),
-            )
-            Text(
-                text = text,
-                color = onContainer,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
     }
 }
 
@@ -870,59 +698,61 @@ private fun authorizeLabelFor(transactions: List<TransactionData>): Int =
         else -> R.string.present_authorize
     }
 
+/**
+ * The credential as a physical-feeling pass: issuer gradient, issuer logo, the credential's
+ * name, and the issuer-masked account when it carries one — the same card the payment screen
+ * shows, so a credential looks like itself wherever the wallet renders it.
+ *
+ * It deliberately carries no claim rows. Those live in [RequestedInformationSection] below
+ * the carousel, and moving them there is what lets this card hold the ID-1 ratio: a
+ * fixed-proportion card cannot grow to fit eight claim values, and clipping the very
+ * information the user is consenting to is not an option.
+ *
+ * The card also carries no selection state — it lives on a carousel page, and the visible
+ * page *is* the selection.
+ */
 @Composable
 private fun MatchPassCard(
     match: DcqlMatcher.Match,
     credential: Credential?,
 ) {
-    // The card no longer carries selection state: it lives on a carousel page, and the
-    // visible page is the selection. 28dp corners match the wallet's pass shape; the
-    // dots below the pager, not a border, communicate which option is active.
     val shape = RoundedCornerShape(28.dp)
-
+    // aspectRatio rather than a height: the pager page is already sized to the same ratio,
+    // so the two agree by construction and the card keeps its proportions on any screen
+    // width — including the narrower pages that appear once the peek kicks in.
     val baseModifier =
         Modifier
             .fillMaxWidth()
-            .heightIn(min = CARD_MIN_HEIGHT)
+            .aspectRatio(CARD_ASPECT_RATIO)
             .shadow(elevation = 6.dp, shape = shape)
             .clip(shape)
 
     if (credential == null) {
+        // The credential row hasn't loaded yet (or was deleted mid-flow). A neutral card at
+        // the same ratio keeps the carousel's geometry stable instead of collapsing the page.
         Box(
             modifier = baseModifier.background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.CenterStart,
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = match.credentialId.take(8),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "${match.format.name} · ${match.requestedClaimPaths.size} field(s)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = match.credentialId.take(8),
+                modifier = Modifier.padding(20.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         return
     }
 
     val art = PassArt.forCredential(credential)
     val display = CredentialDisplay.resolve(credential)
-    val claims = remember(credential.id) { CredentialClaims.extract(credential) }
+    val maskedAccount = remember(credential.id) { maskedAccountOf(credential) }
 
     Box(modifier = baseModifier) {
         // Gradient + sheen only. Issuer-supplied background images often embed their own
-        // logos/copy that collide with the credential name + the claim values we render
-        // on top — skip them here. Issuer colors still drive the gradient via
-        // PassArt.fromDisplay; the logo on the top-right is preserved.
-        //
-        // matchParentSize() (BoxScope) is required because the parent has unbounded
-        // vertical constraints (heightIn(min=...) inside a verticalScroll) — fillMaxSize()
-        // would collapse the layers to 0dp and the gradient/sheen would never paint. With
-        // matchParentSize, the Column below determines the height and the layers stretch
-        // to match after measurement.
+        // logos/copy that collide with the credential name we render on top — skip them
+        // here. Issuer colors still drive the gradient via PassArt.fromDisplay; the logo on
+        // the top-right is preserved.
         Box(
             modifier =
                 Modifier
@@ -939,9 +769,9 @@ private fun MatchPassCard(
         Column(
             modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .matchParentSize()
+                    .padding(20.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -950,6 +780,8 @@ private fun MatchPassCard(
                         color = art.foreground,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     display.description?.let {
                         Text(
@@ -974,50 +806,124 @@ private fun MatchPassCard(
                 }
             }
 
-            HorizontalDivider(color = art.foreground.copy(alpha = 0.25f))
-
-            if (match.requestedClaimPaths.isEmpty()) {
+            maskedAccount?.let {
                 Text(
-                    text = "${match.format.name} · 0 field(s)",
-                    color = art.foreground.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = it,
+                    color = art.foreground,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    match.requestedClaimPaths.forEach { path ->
-                        ClaimRequestRow(
-                            path = path,
-                            value =
-                                resolveClaim(claims.user, path)
-                                    ?: resolveClaim(claims.protocol, path),
-                            foreground = art.foreground,
-                        )
-                    }
+            }
+        }
+    }
+}
+
+/**
+ * What the verifier will actually receive, for the candidate currently on screen. For an
+ * attribute-sharing request this list *is* the consent record, so every requested claim path
+ * is rendered with the value that would be disclosed — no truncation, no "and 3 more".
+ *
+ * When a candidate spans several credentials (DCQL `credential_sets`) each gets its own
+ * labelled group, so the user can tell which credential contributes which attribute. With a
+ * single credential the group heading is suppressed: it would only repeat the card above it.
+ */
+@Composable
+private fun RequestedInformationSection(
+    candidate: PresentationCandidate,
+    credentialsById: Map<String, Credential>,
+    locale: Locale,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            val grouped = candidate.assignments.size > 1
+            candidate.assignments.forEachIndexed { index, assignment ->
+                if (index > 0) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
+                val credential = credentialsById[assignment.credentialId]
+                if (grouped) {
+                    Text(
+                        text =
+                            credential
+                                ?.let { CredentialDisplay.resolve(it).name }
+                                ?: assignment.credentialId.take(8),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                RequestedClaimList(match = assignment, credential = credential, locale = locale)
             }
         }
     }
 }
 
 @Composable
+private fun RequestedClaimList(
+    match: DcqlMatcher.Match,
+    credential: Credential?,
+    locale: Locale,
+) {
+    if (match.requestedClaimPaths.isEmpty()) {
+        // A query with no `claims` member asks for the whole credential rather than for
+        // named attributes, so there is nothing to enumerate here.
+        Text(
+            text = stringResource(R.string.present_no_fields_requested),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val claims = remember(credential?.id) { credential?.let { CredentialClaims.extract(it) } }
+    // Issuer-supplied labels for this credential — from its SD-JWT VC Type Metadata or,
+    // failing that, from the OpenID4VCI issuer metadata captured at offer time. Both are
+    // persisted in the same blob, so one lookup covers either source. Credentials issued
+    // before claim metadata was captured resolve empty and fall back to the raw path.
+    val labels =
+        remember(credential?.id, locale) {
+            credential?.let { ClaimLabelResolver.resolve(it.displayMetadataJson, locale) }
+        }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        match.requestedClaimPaths.forEach { path ->
+            ClaimRequestRow(
+                label = labels?.labelFor(path) ?: path.joinToString("."),
+                value =
+                    claims?.let {
+                        resolveClaim(it.user, path) ?: resolveClaim(it.protocol, path)
+                    },
+            )
+        }
+    }
+}
+
+@Composable
 private fun ClaimRequestRow(
-    path: List<String>,
+    label: String,
     value: JsonElement?,
-    foreground: androidx.compose.ui.graphics.Color,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = path.joinToString("."),
-            color = foreground.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.bodySmall,
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = value?.let(::formatClaimValue) ?: "—",
-            color = foreground,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1.2f),
@@ -1057,42 +963,11 @@ private fun formatClaimValue(value: JsonElement): String =
         }
     }
 
-// Card metrics shared between MatchPassCard and the pager that sizes it. HorizontalPager
-// inside a verticalScroll receives unbounded vertical constraints, so it needs an explicit
-// height; deriving that height from the same constants the card lays itself out with is
-// what stops the two drifting apart when padding changes.
-private val CARD_MIN_HEIGHT = 132.dp
-private val CARD_PADDING = 18.dp
-private val CARD_CONTENT_SPACING = 10.dp
-private val CARD_HEADER_HEIGHT = 44.dp
-private val CARD_DIVIDER_HEIGHT = 1.dp
-private val CLAIM_ROW_HEIGHT = 40.dp
-private val CLAIM_ROW_SPACING = 6.dp
+// Gap between the cards of a candidate that needs more than one credential. The card's own
+// height is no longer a constant at all — it follows from the page width and
+// CARD_ASPECT_RATIO, which is what removed the pile of layout constants that used to have to
+// stay in sync with the card's internals.
 private val CARD_STACK_SPACING = 12.dp
-
-private fun estimatedCardHeight(claimCount: Int): Dp {
-    val claims =
-        if (claimCount == 0) {
-            CLAIM_ROW_HEIGHT
-        } else {
-            CLAIM_ROW_HEIGHT * claimCount + CLAIM_ROW_SPACING * (claimCount - 1)
-        }
-    val total =
-        CARD_PADDING * 2 +
-            CARD_HEADER_HEIGHT +
-            CARD_CONTENT_SPACING +
-            CARD_DIVIDER_HEIGHT +
-            CARD_CONTENT_SPACING +
-            claims
-    return if (total < CARD_MIN_HEIGHT) CARD_MIN_HEIGHT else total
-}
-
-private fun estimatedCandidateHeight(candidate: PresentationCandidate): Dp {
-    val cards = candidate.assignments.map { estimatedCardHeight(it.requestedClaimPaths.size) }
-    val stacked = cards.fold(0.dp) { acc, h -> acc + h }
-    val gaps = if (cards.size > 1) CARD_STACK_SPACING * (cards.size - 1) else 0.dp
-    return stacked + gaps
-}
 
 /**
  * One page per [PresentationCandidate]. The visible page is the selection, so there is no
@@ -1108,42 +983,63 @@ private fun CandidateCarousel(
     credentialsById: Map<String, Credential>,
     pagerState: PagerState,
 ) {
-    val pageHeight = candidates.maxOf { estimatedCandidateHeight(it) }
     // A peek of the neighbouring card is what signals "there is more to swipe through";
     // with a single candidate there is nothing to peek at, so the page runs full width.
     val peek = if (candidates.size > 1) 24.dp else 0.dp
+    // Every page is as tall as the busiest candidate so the pager doesn't resize mid-swipe.
+    val maxCardsPerPage = candidates.maxOf { it.assignments.size }
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        HorizontalPager(
-            state = pagerState,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(pageHeight),
-            contentPadding = PaddingValues(horizontal = peek),
-            pageSpacing = 12.dp,
-        ) { page ->
-            val candidate = candidates[page]
-            val position =
-                stringResource(
-                    R.string.present_candidate_position,
-                    page + 1,
-                    candidates.size,
-                )
-            Column(
-                modifier = Modifier.semantics { contentDescription = position },
-                verticalArrangement = Arrangement.spacedBy(CARD_STACK_SPACING),
-            ) {
-                candidate.assignments.forEach { assignment ->
-                    MatchPassCard(
-                        match = assignment,
-                        credential = credentialsById[assignment.credentialId],
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // The pager sits in a verticalScroll and so receives unbounded vertical
+        // constraints — it needs an explicit height. Deriving that height from the width a
+        // page actually gets (the peek narrows every page on both sides) is what holds the
+        // cards at the ID-1 ratio instead of letterboxing them inside a taller page.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val cardHeight = (maxWidth - peek * 2) / CARD_ASPECT_RATIO
+            val pageHeight =
+                cardHeight * maxCardsPerPage +
+                    CARD_STACK_SPACING * (maxCardsPerPage - 1).coerceAtLeast(0)
+            HorizontalPager(
+                state = pagerState,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(pageHeight),
+                contentPadding = PaddingValues(horizontal = peek),
+                pageSpacing = 12.dp,
+            ) { page ->
+                val candidate = candidates[page]
+                val position =
+                    stringResource(
+                        R.string.present_candidate_position,
+                        page + 1,
+                        candidates.size,
                     )
+                Column(
+                    modifier = Modifier.semantics { contentDescription = position },
+                    verticalArrangement = Arrangement.spacedBy(CARD_STACK_SPACING),
+                ) {
+                    candidate.assignments.forEach { assignment ->
+                        MatchPassCard(
+                            match = assignment,
+                            credential = credentialsById[assignment.credentialId],
+                        )
+                    }
                 }
             }
         }
 
         if (candidates.size > 1) {
+            // The nudge lives here rather than as a card further up the screen: it describes
+            // the carousel, so it reads as an instruction next to it and as a disclaimer
+            // anywhere else. Same treatment as the payment screen's card picker.
+            Text(
+                text = stringResource(R.string.present_choose_credential),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
             CandidateDots(
                 count = candidates.size,
                 selected = pagerState.currentPage,

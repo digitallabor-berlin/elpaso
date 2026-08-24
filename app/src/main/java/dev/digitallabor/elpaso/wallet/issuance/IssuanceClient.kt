@@ -476,7 +476,10 @@ class IssuanceClient(
             .name
 
     private fun buildIssuerDisplayJson(cfg: CredentialConfiguration): String =
-        IssuerDisplayJsonBuilder.build(cfg.credentialMetadata?.display.orEmpty())
+        IssuerDisplayJsonBuilder.build(
+            cfg.credentialMetadata?.display.orEmpty(),
+            cfg.credentialMetadata?.claims.orEmpty(),
+        )
 
     /**
      * Best-effort fetch of the PaSO signed credential metadata (paso-proof-metadata.md

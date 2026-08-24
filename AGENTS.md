@@ -129,13 +129,26 @@ Established primitives — extend these rather than bypassing them with one-off
 
 - **`ExpressiveTypography`** in `ui/theme/Type.kt` — Roboto Flex variable font for
   Display and Headline, system Roboto for Title, Body and Label.
-- **`EuropaPalette`** in `ui/theme/Palettes.kt` is the **only** palette.
-  `ElPasoTheme(darkTheme, content)` takes no palette parameter; there is no colour-theme
-  switcher.
-- **`PassArt`** derives per-credential card colours (gradient, sheen, accent) from the
-  credential's resolved display or a hash of its issuer. Card shape is 28dp.
+- **There is no app-owned palette.** `ElPasoTheme(darkTheme, content)` in
+  `ui/theme/Theme.kt` takes its `ColorScheme` from the system: Material You dynamic
+  colour on API 31+, the Material 3 baseline scheme on 29–30. It takes no palette
+  parameter and there is no colour-theme switcher. Do not reintroduce a hardcoded
+  `ColorScheme` — read colours through `MaterialTheme.colorScheme`.
+- **`PassArt`** is the one exception, and it is not app chrome: it derives
+  per-credential card colours (gradient, sheen, accent) from the credential's resolved
+  display or a hash of its issuer, so cards stay visually distinct regardless of the
+  system scheme. Card shape is 28dp; credential-preview cards use the ID-1 ratio
+  (`CARD_ASPECT_RATIO = 1.586f`, defined per-file in `AddOfferFlow.kt` and
+  `PaymentConsent.kt`).
 - **`SettingsButton`** is 56dp with a 28dp radius and 6dp shadow — the visual language
   inherited from the removed nav menu. Match it if you add floating chrome.
+- **`Theme.ElPaso` in `res/values/themes.xml` is duplicated in `res/values-night/`.**
+  It is the pre-Compose window theme, painting only the cold-launch frame before
+  `ElPasoTheme` takes over; the night copy exists because Android styles do not merge
+  across qualifiers and there is no platform `Theme.Material.DayNight` (DayNight is
+  AppCompat/MDC only, and this app deliberately does not use those). Edit both copies
+  together. `enableEdgeToEdge()` in each Activity re-applies the bar appearance at
+  runtime, so `windowLightStatusBar` there governs the launch frame alone.
 
 ## Common gotchas
 

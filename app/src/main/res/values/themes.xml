@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
+    <!--
+      Pre-Compose window theme: paints the cold-launch window before ElPasoTheme takes
+      over. Duplicated in values-night with the dark Material parent, because Android
+      styles do not merge across qualifiers and there is no platform Material.DayNight
+      style. enableEdgeToEdge() re-applies the bar appearance at runtime; these values
+      only matter for the launch frame.
+    -->
     <style name="Theme.ElPaso" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>

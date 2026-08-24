@@ -25,9 +25,9 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import dev.digitallabor.elpaso.wallet.R
+import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
+import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabels
 import dev.digitallabor.elpaso.wallet.domain.model.CredentialDisplay
 import dev.digitallabor.elpaso.wallet.domain.model.Format
 import dev.digitallabor.elpaso.wallet.domain.model.PassArt
@@ -151,20 +153,35 @@ fun PassDetailScreen(
             val credential = current.credential
             val art = PassArt.forCredential(credential)
             Column(
-                modifier = Modifier
-                    .padding(inner)
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 8.dp, bottom = 32.dp),
+                modifier =
+                    Modifier
+                        .padding(inner)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 8.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 HeroCard(display = display, art = art)
                 ActionRow(
                     onUse = onUse,
-                    onRemove = { scope.launch { viewModel.remove(credential); onBack() } },
+                    onRemove = {
+                        scope.launch {
+                            viewModel.remove(credential)
+                            onBack()
+                        }
+                    },
                 )
-                ClaimsCard(claims = current.claims.user)
+                // Issuer-supplied claim labels, from the credential's SD-JWT VC Type
+                // Metadata or the OpenID4VCI issuer metadata captured at offer time.
+                // MainActivity.attachBaseContext already wrapped the Configuration with
+                // the user's language choice, so the config locale is the effective one.
+                val claimLocale = LocalConfiguration.current.locales[0]
+                val claimLabels =
+                    remember(credential.id, claimLocale) {
+                        ClaimLabelResolver.resolve(credential.displayMetadataJson, claimLocale)
+                    }
+                ClaimsCard(claims = current.claims.user, labels = claimLabels)
                 TechnicalDetailsCard(format = credential.format, claims = current.claims.protocol)
             }
         }
@@ -172,16 +189,20 @@ fun PassDetailScreen(
 }
 
 @Composable
-private fun HeroCard(display: CredentialDisplay, art: PassArt) {
+private fun HeroCard(
+    display: CredentialDisplay,
+    art: PassArt,
+) {
     // Hero moment #1 of 1 for this screen: bold corners (32dp = shape.extraLarge-increased),
     // gradient + sheen + optional issuer-supplied background image. Issuer-supplied colors
     // win when present (see PassArt.fromDisplay); otherwise the deterministic palette
     // keeps cards distinct across issuers.
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(240.dp)
-            .clip(RoundedCornerShape(32.dp)),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .clip(RoundedCornerShape(32.dp)),
         shape = RoundedCornerShape(32.dp),
         color = Color.Transparent,
         tonalElevation = 0.dp,
@@ -194,17 +215,24 @@ private fun HeroCard(display: CredentialDisplay, art: PassArt) {
             // (rendered top-right below) since those are designed to sit alone on a
             // colored surface. Issuer-supplied colors still drive the gradient via
             // PassArt.fromDisplay.
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .background(brush = art.baseGradient))
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .background(brush = art.sheenOverlay))
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(brush = art.baseGradient),
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(brush = art.sheenOverlay),
+            )
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .padding(end = 84.dp),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .padding(end = 84.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
@@ -225,10 +253,11 @@ private fun HeroCard(display: CredentialDisplay, art: PassArt) {
                 AsyncImage(
                     model = uri,
                     contentDescription = display.name,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(20.dp)
-                        .size(56.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(20.dp)
+                            .size(56.dp),
                     onError = { Log.w("PassDetailLogo", "Coil failed for $uri", it.result.throwable) },
                 )
             }
@@ -237,7 +266,10 @@ private fun HeroCard(display: CredentialDisplay, art: PassArt) {
 }
 
 @Composable
-private fun ActionRow(onUse: () -> Unit, onRemove: () -> Unit) {
+private fun ActionRow(
+    onUse: () -> Unit,
+    onRemove: () -> Unit,
+) {
     // Expressive pairing: one filled primary (high emphasis, the page's main action) and
     // one filled-tonal secondary. Both at L-size height (64dp) with bold-but-not-pill
     // corners (20dp) for shape contrast against the 32dp hero card.
@@ -247,14 +279,16 @@ private fun ActionRow(onUse: () -> Unit, onRemove: () -> Unit) {
     ) {
         Button(
             onClick = onUse,
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(64.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
         ) {
             Text(
                 text = stringResource(R.string.detail_use),
@@ -264,9 +298,10 @@ private fun ActionRow(onUse: () -> Unit, onRemove: () -> Unit) {
         }
         FilledTonalButton(
             onClick = onRemove,
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(64.dp),
             shape = RoundedCornerShape(20.dp),
         ) {
             Text(
@@ -279,38 +314,47 @@ private fun ActionRow(onUse: () -> Unit, onRemove: () -> Unit) {
 }
 
 @Composable
-private fun ClaimsCard(claims: JsonObject) {
+private fun ClaimsCard(
+    claims: JsonObject,
+    labels: ClaimLabels,
+) {
     SectionHeading(text = stringResource(R.string.detail_details))
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        colors =
+            CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
     ) {
         if (claims.isEmpty()) {
             Text(
                 text = stringResource(R.string.detail_claims_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
             )
         } else {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
             ) {
-                ClaimEntries(entries = claims.entries.toList(), depth = 0)
+                ClaimEntries(entries = claims.entries.toList(), depth = 0, path = emptyList(), labels = labels)
             }
         }
     }
 }
 
 @Composable
-private fun TechnicalDetailsCard(format: Format, claims: JsonObject) {
+private fun TechnicalDetailsCard(
+    format: Format,
+    claims: JsonObject,
+) {
     var expanded by remember { mutableStateOf(false) }
     // Tonal surface for "supporting info" hierarchy: lives below the primary hero +
     // claims, uses surfaceContainerLow with a more restrained 20dp corner so it reads
@@ -323,10 +367,11 @@ private fun TechnicalDetailsCard(format: Format, claims: JsonObject) {
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = !expanded }
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -346,13 +391,24 @@ private fun TechnicalDetailsCard(format: Format, claims: JsonObject) {
                 enter = expandVertically(expandFrom = Alignment.Top),
                 exit = shrinkVertically(shrinkTowards = Alignment.Top),
             ) {
-                Column(modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                ) {
                     ClaimEntryRow(label = "format", value = JsonPrimitive(format.name), depth = 0)
                     if (claims.isNotEmpty()) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        ClaimEntries(entries = claims.entries.toList(), depth = 0)
+                        // Protocol scaffolding (`iss`, `iat`, `cnf`, `_sd_alg`, …) — no issuer
+                        // describes these, and this section is meant to read as raw. Labels are
+                        // withheld on purpose rather than looked up and missed.
+                        ClaimEntries(
+                            entries = claims.entries.toList(),
+                            depth = 0,
+                            path = emptyList(),
+                            labels = ClaimLabels.Empty,
+                        )
                     }
                 }
             }
@@ -372,10 +428,32 @@ private fun SectionHeading(text: String) {
 
 private const val MAX_CLAIM_DEPTH = 3
 
+/**
+ * [path] is the claim path of the enclosing object, so each entry's own path is
+ * `path + key`. Array indices are not appended: `ClaimLabelResolver` reduces metadata
+ * paths to their string segments (dropping `null` wildcards and integers), so a field
+ * inside `degrees[0]` must look up `["degrees", "type"]`, not `["degrees", "0", "type"]`.
+ */
 @Composable
-private fun ClaimEntries(entries: List<Map.Entry<String, JsonElement>>, depth: Int) {
+private fun ClaimEntries(
+    entries: List<Map.Entry<String, JsonElement>>,
+    depth: Int,
+    path: List<String>,
+    labels: ClaimLabels,
+) {
     entries.forEachIndexed { index, entry ->
-        ClaimEntryRow(label = entry.key, value = entry.value, depth = depth)
+        val entryPath = path + entry.key
+        ClaimEntryRow(
+            // The leaf fallback matters for mso_mdoc: CredentialClaims flattens the
+            // namespace away when decoding IssuerSigned, so this tree only knows
+            // `family_name` where the metadata path is `[namespace, "family_name"]`.
+            // It only ever resolves names that exactly one metadata path ends with.
+            label = labels.labelFor(entryPath) ?: labels.labelForLeaf(entry.key) ?: entry.key,
+            value = entry.value,
+            depth = depth,
+            path = entryPath,
+            labels = labels,
+        )
         if (index < entries.size - 1) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
@@ -386,26 +464,39 @@ private fun ClaimEntries(entries: List<Map.Entry<String, JsonElement>>, depth: I
 }
 
 @Composable
-private fun ClaimEntryRow(label: String, value: JsonElement, depth: Int) {
+private fun ClaimEntryRow(
+    label: String,
+    value: JsonElement,
+    depth: Int,
+    path: List<String> = emptyList(),
+    labels: ClaimLabels = ClaimLabels.Empty,
+) {
     val indent = (depth * 12).dp
     val locale = LocalConfiguration.current.locales[0]
     when {
         value is JsonObject && depth < MAX_CLAIM_DEPTH -> {
-            Column(modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = indent + 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = indent + 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+            ) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                ClaimEntries(entries = value.entries.toList(), depth = depth + 1)
+                ClaimEntries(entries = value.entries.toList(), depth = depth + 1, path = path, labels = labels)
             }
         }
+
         value is JsonArray && value.any { it is JsonObject } && depth < MAX_CLAIM_DEPTH -> {
-            Column(modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = indent + 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = indent + 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+            ) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.titleSmall,
@@ -420,18 +511,28 @@ private fun ClaimEntryRow(label: String, value: JsonElement, depth: Int) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 12.dp),
                         )
-                        ClaimEntries(entries = element.entries.toList(), depth = depth + 2)
+                        // The array's own path carries into its elements — the index is not
+                        // part of a claim path once the resolver's reduction is applied.
+                        ClaimEntries(
+                            entries = element.entries.toList(),
+                            depth = depth + 2,
+                            path = path,
+                            labels = labels,
+                        )
                     } else {
+                        // A positional row is not a claim; it keeps its index as its label.
                         ClaimEntryRow(label = "[$i]", value = element, depth = depth + 1)
                     }
                 }
             }
         }
+
         else -> {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = indent + 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = indent + 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -455,21 +556,39 @@ private fun ClaimEntryRow(label: String, value: JsonElement, depth: Int) {
 
 private val TIMESTAMP_CLAIM_KEYS = setOf("iat", "exp", "nbf")
 
-private fun formatValue(label: String, value: JsonElement, locale: Locale): String {
+private fun formatValue(
+    label: String,
+    value: JsonElement,
+    locale: Locale,
+): String {
     if (label in TIMESTAMP_CLAIM_KEYS && value is JsonPrimitive) {
         value.longOrNull?.let { return formatEpochSeconds(it, locale) }
     }
     return when (value) {
-        is JsonNull -> "—"
-        is JsonPrimitive -> value.content
-        is JsonArray -> value.joinToString(", ") { element ->
-            if (element is JsonPrimitive) element.content else element.toString()
+        is JsonNull -> {
+            "—"
         }
-        is JsonObject -> value.toString()
+
+        is JsonPrimitive -> {
+            value.content
+        }
+
+        is JsonArray -> {
+            value.joinToString(", ") { element ->
+                if (element is JsonPrimitive) element.content else element.toString()
+            }
+        }
+
+        is JsonObject -> {
+            value.toString()
+        }
     }
 }
 
-private fun formatEpochSeconds(epochSeconds: Long, locale: Locale): String =
+private fun formatEpochSeconds(
+    epochSeconds: Long,
+    locale: Locale,
+): String =
     DateTimeFormatter
         .ofLocalizedDateTime(FormatStyle.MEDIUM)
         .withLocale(locale)
