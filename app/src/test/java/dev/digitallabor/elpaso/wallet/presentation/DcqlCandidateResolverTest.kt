@@ -137,34 +137,39 @@ class DcqlCandidateResolverTest {
 
     @Test
     fun `an option naming two query ids produces one candidate holding both`() {
-        val query = dcql(
-            ids = listOf("card", "age"),
-            sets = listOf(set(listOf("card", "age"))),
-        )
-        val out = resolver.resolve(
-            query,
-            listOf(match("card", "cred-card"), match("age", "cred-age")),
-        )
+        val query =
+            dcql(
+                ids = listOf("card", "age"),
+                sets = listOf(set(listOf("card", "age"))),
+            )
+        val out =
+            resolver.resolve(
+                query,
+                listOf(match("card", "cred-card"), match("age", "cred-age")),
+            )
         assertEquals(listOf(listOf("cred-card", "cred-age")), out.credentialIds())
     }
 
     @Test
     fun `two required sets produce the cartesian product across them`() {
-        val query = dcql(
-            ids = listOf("sparkasse", "wero", "age"),
-            sets = listOf(
-                set(listOf("sparkasse"), listOf("wero")),
-                set(listOf("age")),
-            ),
-        )
-        val out = resolver.resolve(
-            query,
-            listOf(
-                match("sparkasse", "cred-sparkasse"),
-                match("wero", "cred-wero"),
-                match("age", "cred-age"),
-            ),
-        )
+        val query =
+            dcql(
+                ids = listOf("sparkasse", "wero", "age"),
+                sets =
+                    listOf(
+                        set(listOf("sparkasse"), listOf("wero")),
+                        set(listOf("age")),
+                    ),
+            )
+        val out =
+            resolver.resolve(
+                query,
+                listOf(
+                    match("sparkasse", "cred-sparkasse"),
+                    match("wero", "cred-wero"),
+                    match("age", "cred-age"),
+                ),
+            )
         assertEquals(
             listOf(
                 listOf("cred-sparkasse", "cred-age"),
@@ -176,56 +181,64 @@ class DcqlCandidateResolverTest {
 
     @Test
     fun `an optional set is never disclosed`() {
-        val query = dcql(
-            ids = listOf("card", "loyalty"),
-            sets = listOf(
-                set(listOf("card")),
-                set(listOf("loyalty"), required = false),
-            ),
-        )
-        val out = resolver.resolve(
-            query,
-            listOf(match("card", "cred-card"), match("loyalty", "cred-loyalty")),
-        )
+        val query =
+            dcql(
+                ids = listOf("card", "loyalty"),
+                sets =
+                    listOf(
+                        set(listOf("card")),
+                        set(listOf("loyalty"), required = false),
+                    ),
+            )
+        val out =
+            resolver.resolve(
+                query,
+                listOf(match("card", "cred-card"), match("loyalty", "cred-loyalty")),
+            )
         assertEquals(listOf(listOf("cred-card")), out.credentialIds())
     }
 
     @Test
     fun `a request whose sets are all optional yields nothing`() {
-        val query = dcql(
-            ids = listOf("loyalty"),
-            sets = listOf(set(listOf("loyalty"), required = false)),
-        )
+        val query =
+            dcql(
+                ids = listOf("loyalty"),
+                sets = listOf(set(listOf("loyalty"), required = false)),
+            )
         assertTrue(resolver.resolve(query, listOf(match("loyalty", "cred-loyalty"))).isEmpty())
     }
 
     @Test
     fun `a credential query referenced by no set is not requested`() {
-        val query = dcql(
-            ids = listOf("card", "stray"),
-            sets = listOf(set(listOf("card"))),
-        )
-        val out = resolver.resolve(
-            query,
-            listOf(match("card", "cred-card"), match("stray", "cred-stray")),
-        )
+        val query =
+            dcql(
+                ids = listOf("card", "stray"),
+                sets = listOf(set(listOf("card"))),
+            )
+        val out =
+            resolver.resolve(
+                query,
+                listOf(match("card", "cred-card"), match("stray", "cred-stray")),
+            )
         assertEquals(listOf(listOf("cred-card")), out.credentialIds())
     }
 
     @Test
     fun `candidate order follows option order then wallet order`() {
-        val query = dcql(
-            ids = listOf("wero", "sparkasse"),
-            sets = listOf(set(listOf("sparkasse"), listOf("wero"))),
-        )
-        val out = resolver.resolve(
-            query,
-            listOf(
-                match("wero", "cred-wero"),
-                match("sparkasse", "cred-sparkasse-a"),
-                match("sparkasse", "cred-sparkasse-b"),
-            ),
-        )
+        val query =
+            dcql(
+                ids = listOf("wero", "sparkasse"),
+                sets = listOf(set(listOf("sparkasse"), listOf("wero"))),
+            )
+        val out =
+            resolver.resolve(
+                query,
+                listOf(
+                    match("wero", "cred-wero"),
+                    match("sparkasse", "cred-sparkasse-a"),
+                    match("sparkasse", "cred-sparkasse-b"),
+                ),
+            )
         // Option order wins over the order matches arrived in: the sparkasse option is
         // listed first, and within it the wallet's own credential order is preserved.
         assertEquals(
@@ -238,10 +251,11 @@ class DcqlCandidateResolverTest {
     fun `the candidate count is capped`() {
         val capped = DcqlCandidateResolver(maxCandidates = 3)
         val query = dcql(ids = listOf("card"))
-        val out = capped.resolve(
-            query,
-            (1..10).map { match("card", "cred-$it") },
-        )
+        val out =
+            capped.resolve(
+                query,
+                (1..10).map { match("card", "cred-$it") },
+            )
         assertEquals(3, out.size)
         assertEquals(listOf(listOf("cred-1"), listOf("cred-2"), listOf("cred-3")), out.credentialIds())
     }
