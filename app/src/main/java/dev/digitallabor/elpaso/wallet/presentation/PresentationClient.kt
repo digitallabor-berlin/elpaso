@@ -94,6 +94,7 @@ class PresentationClient(
     private val httpClient: HttpClient,
     private val settings: SettingsRepository,
     private val credentialMetadataRepository: dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository,
+    private val candidateResolver: DcqlCandidateResolver,
 ) {
     sealed interface State {
         data object Idle : State
@@ -112,6 +113,12 @@ class PresentationClient(
             val resolvedRequest: ResolvedRequestObject?,
             val verifier: VerifierIdentity,
             val matches: List<DcqlMatcher.Match>,
+            /**
+             * Every spec-valid way to satisfy this request (OpenID4VP 1.0 §6.4.2). One
+             * carousel page per entry; the visible page is the user's selection. Empty
+             * means the request cannot be satisfied and nothing may be disclosed.
+             */
+            val candidates: List<PresentationCandidate>,
             val transactionData: List<UiTransactionData>,
             val nonce: String,
             val audience: String,
@@ -408,19 +415,26 @@ class PresentationClient(
             val dcql = dcApiJson.decodeFromString(DCQL.serializer(), dcqlJson.toString())
 
             val allCredentials = repository.observeAll().first()
-            val candidates =
+            val eligibleCredentials =
                 if (selectedCredentialId != null) {
                     allCredentials.filter { it.id == selectedCredentialId }
                 } else {
                     allCredentials
                 }
-            val matches = matcher.match(dcql, candidates)
+            val matches = matcher.match(dcql, eligibleCredentials)
+            val presentationCandidates = candidateResolver.resolve(dcql, matches)
             Log.i(
                 LOG_TAG,
-                "resolveDcApi candidates=${candidates.size} matches=${matches.size} " +
+                "resolveDcApi eligible=${eligibleCredentials.size} matches=${matches.size} " +
+                    "candidates=${presentationCandidates.size} " +
                     "match_ids=${matches.map { it.credentialId }} client_id=$clientId nonce_len=${nonce.length}",
             )
             if (matches.isEmpty()) error("No stored credential satisfies the DC API request")
+            // §6.4.2: if a required credential set cannot be satisfied, disclose nothing.
+            // Fail closed rather than send a partial response.
+            if (presentationCandidates.isEmpty()) {
+                error("No stored credential satisfies the DC API request's credential_sets")
+            }
 
             val txData = parseTransactionData(request)
             PasoDetector.rejectAdvancedProfile(txData)
@@ -486,6 +500,7 @@ class PresentationClient(
                     resolvedRequest = null,
                     verifier = verifier,
                     matches = matches,
+                    candidates = presentationCandidates,
                     transactionData = txData,
                     nonce = nonce,
                     audience = audience,
@@ -754,6 +769,7 @@ class PresentationClient(
 
         val allCredentials = repository.observeAll().first()
         val matches = matcher.match(req.query, allCredentials)
+        val presentationCandidates = candidateResolver.resolve(req.query, matches)
         val txData =
             (req.transactionData ?: emptyList())
                 .map(TransactionDataAdapter::fromLibrary)
@@ -780,6 +796,7 @@ class PresentationClient(
                 resolvedRequest = req,
                 verifier = verifier,
                 matches = matches,
+                candidates = presentationCandidates,
                 transactionData = txData,
                 nonce = req.nonce,
                 audience = audience,

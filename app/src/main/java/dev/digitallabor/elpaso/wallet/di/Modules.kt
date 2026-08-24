@@ -16,6 +16,7 @@ import dev.digitallabor.elpaso.wallet.issuance.CredentialMetadataRefresher
 import dev.digitallabor.elpaso.wallet.issuance.CredentialMetadataVerifier
 import dev.digitallabor.elpaso.wallet.issuance.DPoPSigner
 import dev.digitallabor.elpaso.wallet.issuance.IssuanceClient
+import dev.digitallabor.elpaso.wallet.presentation.DcqlCandidateResolver
 import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationClient
 import dev.digitallabor.elpaso.wallet.presentation.builder.MdocDeviceResponseBuilder
@@ -74,9 +75,10 @@ val issuanceModule =
 val presentationModule =
     module {
         single { DcqlMatcher() }
+        single { DcqlCandidateResolver() }
         single { SdJwtPresentationBuilder(get()) }
         single { MdocDeviceResponseBuilder(get()) }
-        single { PresentationClient(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+        single { PresentationClient(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
 
         viewModel { HomeViewModel(get(), get()) }
         viewModel { PassDetailViewModel(get()) }
