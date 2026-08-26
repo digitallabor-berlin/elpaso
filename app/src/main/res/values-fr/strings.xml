@@ -23,10 +23,14 @@
     <string name="add_tx_code_label">Code de transaction</string>
     <string name="add_tx_code_hint">Saisissez le code fourni par l\'émetteur</string>
     <string name="add_unknown_issuer">Cet émetteur ne figure pas sur la liste de confiance.</string>
+    <string name="add_offered_credentials">Justificatifs proposés</string>
 
     <!-- Flux d\'ajout d\'offre -->
     <string name="addoffer_loading">Chargement de l\'offre…</string>
     <string name="addoffer_resolving">Résolution de l\'offre de justificatif…</string>
+    <string name="addoffer_resolving_support">Vérification de l\'offre auprès de l\'émetteur</string>
+    <string name="addoffer_browser_support">Terminez la connexion, puis revenez au portefeuille</string>
+    <string name="addoffer_issuing_support">Création des clés et demande de votre justificatif</string>
     <string name="addoffer_issuer">Émetteur : %1$s</string>
     <string name="addoffer_browser_continue">Poursuite de l\'autorisation dans le navigateur…</string>
     <string name="addoffer_issuing">Émission du justificatif…</string>
@@ -60,8 +64,10 @@
     <string name="present_cancel">Annuler</string>
     <string name="present_fields">Informations demandées</string>
     <string name="present_no_fields_requested">Aucun attribut individuel demandé</string>
+    <string name="present_also_sharing">Également partagé</string>
     <string name="present_unknown_verifier">Vérificateur non approuvé</string>
     <string name="present_no_match">Aucun justificatif correspondant dans votre portefeuille</string>
+    <string name="present_security_hint">Avis de sécurité</string>
     <string name="present_loading">Chargement…</string>
     <string name="present_error_prefix">Erreur : %1$s</string>
     <string name="present_failed_generic">Échec de la présentation</string>

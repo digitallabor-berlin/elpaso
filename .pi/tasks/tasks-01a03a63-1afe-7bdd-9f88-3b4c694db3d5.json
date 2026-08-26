@@ -1,0 +1,53 @@
+{
+  "nextId": 5,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Add payingQueryIds to PaymentSummary and splitAssignments helper",
+      "description": "In PaymentConsent.kt: widen PaymentSummary with payingQueryIds populated from EudiScaPayment.credentialIds; add pure-Kotlin splitAssignments(candidate, payingQueryIds) returning paying match + supporting matches. Tests first.",
+      "status": "completed",
+      "activeForm": "Adding splitAssignments helper",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787686592785,
+      "updatedAt": 1787686713583
+    },
+    {
+      "id": "2",
+      "subject": "Render SupportingDisclosures block on payment screen",
+      "description": "New composable in PaymentConsent.kt showing supporting credentials (name + claim labels only) below the carousel, keyed to visible pager page. Wire locale param through from PresentScreen.",
+      "status": "completed",
+      "activeForm": "Rendering supporting disclosures",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787686592788,
+      "updatedAt": 1787686744041
+    },
+    {
+      "id": "3",
+      "subject": "Add present_also_sharing string in all three locales",
+      "description": "Add to values/, values-de/, values-fr/ strings.xml. Escape apostrophes in French.",
+      "status": "completed",
+      "activeForm": "Adding localised strings",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787686592790,
+      "updatedAt": 1787686744042
+    },
+    {
+      "id": "4",
+      "subject": "Verify with compileDebugKotlin and testDebugUnitTest",
+      "description": "Run gradle :app:compileDebugKotlin then :app:testDebugUnitTest. Green = 2 known TransactionDataTest failures only.",
+      "status": "completed",
+      "activeForm": "Verifying build and tests",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787686592792,
+      "updatedAt": 1787686780763
+    }
+  ]
+}

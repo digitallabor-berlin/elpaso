@@ -23,10 +23,14 @@
     <string name="add_tx_code_label">Transaction code</string>
     <string name="add_tx_code_hint">Enter the code provided by the issuer</string>
     <string name="add_unknown_issuer">This issuer is not on the trusted list.</string>
+    <string name="add_offered_credentials">Offered credentials</string>
 
     <!-- Add-offer flow (was hardcoded) -->
     <string name="addoffer_loading">Loading offer…</string>
     <string name="addoffer_resolving">Resolving credential offer…</string>
+    <string name="addoffer_resolving_support">Checking the offer with the issuer</string>
+    <string name="addoffer_browser_support">Finish signing in, then return to the wallet</string>
+    <string name="addoffer_issuing_support">Creating keys and requesting your credential</string>
     <string name="addoffer_issuer">Issuer: %1$s</string>
     <string name="addoffer_browser_continue">Continuing authorization in browser…</string>
     <string name="addoffer_issuing">Issuing credential…</string>
@@ -60,8 +64,10 @@
     <string name="present_cancel">Cancel</string>
     <string name="present_fields">Information requested</string>
     <string name="present_no_fields_requested">No individual attributes requested</string>
+    <string name="present_also_sharing">Also sharing</string>
     <string name="present_unknown_verifier">Untrusted verifier</string>
     <string name="present_no_match">No matching credential in your wallet</string>
+    <string name="present_security_hint">Security notice</string>
     <string name="present_loading">Loading…</string>
     <string name="present_error_prefix">Error: %1$s</string>
     <string name="present_failed_generic">Presentation failed</string>

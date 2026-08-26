@@ -23,10 +23,14 @@
     <string name="add_tx_code_label">Transaktionscode</string>
     <string name="add_tx_code_hint">Gib den vom Aussteller bereitgestellten Code ein</string>
     <string name="add_unknown_issuer">Dieser Aussteller steht nicht auf der vertrauten Liste.</string>
+    <string name="add_offered_credentials">Angebotene Nachweise</string>
 
     <!-- Add-offer flow (war hardcoded) -->
     <string name="addoffer_loading">Angebot wird geladen…</string>
     <string name="addoffer_resolving">Angebot wird aufgelöst…</string>
+    <string name="addoffer_resolving_support">Das Angebot wird beim Aussteller geprüft</string>
+    <string name="addoffer_browser_support">Melde dich an und kehre dann zur Wallet zurück</string>
+    <string name="addoffer_issuing_support">Schlüssel werden erzeugt und der Nachweis angefragt</string>
     <string name="addoffer_issuer">Aussteller: %1$s</string>
     <string name="addoffer_browser_continue">Autorisierung wird im Browser fortgesetzt…</string>
     <string name="addoffer_issuing">Nachweis wird ausgestellt…</string>
@@ -60,8 +64,10 @@
     <string name="present_cancel">Abbrechen</string>
     <string name="present_fields">Angefragte Informationen</string>
     <string name="present_no_fields_requested">Keine einzelnen Attribute angefragt</string>
+    <string name="present_also_sharing">Außerdem geteilt</string>
     <string name="present_unknown_verifier">Nicht vertrauter Verifier</string>
     <string name="present_no_match">Kein passender Nachweis in deiner Wallet</string>
+    <string name="present_security_hint">Sicherheitshinweis</string>
     <string name="present_loading">Wird geladen…</string>
     <string name="present_error_prefix">Fehler: %1$s</string>
     <string name="present_failed_generic">Präsentation fehlgeschlagen</string>

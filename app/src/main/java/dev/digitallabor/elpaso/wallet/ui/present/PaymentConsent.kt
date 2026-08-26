@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,16 +44,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import dev.digitallabor.elpaso.wallet.R
+import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
 import dev.digitallabor.elpaso.wallet.domain.claims.CredentialClaims
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.CredentialDisplay
 import dev.digitallabor.elpaso.wallet.domain.model.PassArt
+import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
 import dev.digitallabor.elpaso.wallet.presentation.txdata.formatIsoCurrencyAmount
+import dev.digitallabor.elpaso.wallet.ui.common.TrustWarningCard
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import java.util.Locale
 
 /**
  * What a payment consent screen needs to show, distilled from a `transaction_data` entry:
@@ -63,6 +68,12 @@ import kotlinx.serialization.json.contentOrNull
 internal data class PaymentSummary(
     val amount: String,
     val payee: String?,
+    /**
+     * `credential_ids` from the entry — the DCQL query ids the payment is targeted at, used
+     * to tell the paying instrument apart from credentials merely requested alongside it.
+     * Empty for entry types that carry no targeting, in which case position decides.
+     */
+    val payingQueryIds: List<String>,
 )
 
 /**
@@ -97,13 +108,18 @@ internal fun paymentSummaryOf(entries: List<TransactionData>): PaymentSummary? =
     entries.firstNotNullOfOrNull { entry ->
         when (entry) {
             is TransactionData.EudiScaPayment -> {
-                PaymentSummary(amount = entry.amountDisplay, payee = entry.payeeName)
+                PaymentSummary(
+                    amount = entry.amountDisplay,
+                    payee = entry.payeeName,
+                    payingQueryIds = entry.credentialIds,
+                )
             }
 
             is TransactionData.PasoPayment -> {
                 PaymentSummary(
                     amount = formatIsoCurrencyAmount(entry.amount, entry.currency, entry.amountRaw),
                     payee = entry.payeeName,
+                    payingQueryIds = emptyList(),
                 )
             }
 
@@ -112,7 +128,9 @@ internal fun paymentSummaryOf(entries: List<TransactionData>): PaymentSummary? =
                     listOfNotNull(entry.currency, entry.amount)
                         .joinToString(" ")
                         .takeIf { it.isNotBlank() }
-                amount?.let { PaymentSummary(amount = it, payee = entry.payeeName) }
+                amount?.let {
+                    PaymentSummary(amount = it, payee = entry.payeeName, payingQueryIds = emptyList())
+                }
             }
 
             else -> {
@@ -120,6 +138,31 @@ internal fun paymentSummaryOf(entries: List<TransactionData>): PaymentSummary? =
             }
         }
     }
+
+/**
+ * Splits a candidate into the credential that pays and the credentials the verifier asked
+ * for alongside it.
+ *
+ * A DCQL candidate is a complete assignment — one credential per credential query — so a
+ * payment request that also asks for, say, an age attestation produces a candidate holding
+ * both. [payingQueryIds] (the payment entry's `credential_ids`) names which query is the
+ * payment one; when the entry carries no targeting, or names a query this candidate does not
+ * answer, the first assignment is taken as the payer, matching the request order the verifier
+ * sent. The remainder keep their query order so the screen lists them as the verifier did.
+ *
+ * Pure Kotlin on purpose: no credential bytes are touched, so the choice stays unit-testable
+ * on the JVM where `android.util.*` is stubbed out.
+ */
+internal fun splitAssignments(
+    candidate: PresentationCandidate,
+    payingQueryIds: List<String>,
+): Pair<DcqlMatcher.Match?, List<DcqlMatcher.Match>> {
+    val paying =
+        candidate.assignments.firstOrNull { it.queryId in payingQueryIds }
+            ?: candidate.assignments.firstOrNull()
+            ?: return null to emptyList()
+    return paying to candidate.assignments.filter { it !== paying }
+}
 
 /**
  * Reads the issuer-masked account identifier off a credential. Returns null when the claim
@@ -148,6 +191,7 @@ internal fun PaymentConsentContent(
     candidates: List<PresentationCandidate>,
     credentialsById: Map<String, Credential>,
     pagerState: PagerState,
+    locale: Locale,
     authorizeLabel: ValueTypeFormatters.Formatted?,
     authorizeFallback: String,
     denialLabel: ValueTypeFormatters.Formatted?,
@@ -177,9 +221,25 @@ internal fun PaymentConsentContent(
         } else {
             PaymentCardCarousel(
                 candidates = candidates,
+                payingQueryIds = summary.payingQueryIds,
                 credentialsById = credentialsById,
                 pagerState = pagerState,
             )
+
+            // Keyed off the visible page, so swiping the carousel re-renders this and it
+            // always describes the credentials the selected candidate actually discloses.
+            val supporting =
+                candidates
+                    .getOrNull(pagerState.currentPage)
+                    ?.let { splitAssignments(it, summary.payingQueryIds).second }
+                    .orEmpty()
+            if (supporting.isNotEmpty()) {
+                SupportingDisclosures(
+                    matches = supporting,
+                    credentialsById = credentialsById,
+                    locale = locale,
+                )
+            }
         }
 
         ActionRow(
@@ -266,33 +326,13 @@ internal fun RequesterLine(
 /**
  * Hard trust failure, escalated to a full-width error card. Shared with the general consent
  * screen — an untrusted verifier is the same warning whatever is being asked for.
+ *
+ * The card itself lives in [TrustWarningCard] because the issuance flow raises the same alarm
+ * about an untrusted *issuer*; this function is just the verifier-side copy bound to it.
  */
 @Composable
 internal fun UntrustedNotice() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.errorContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.size(24.dp),
-            )
-            Text(
-                text = stringResource(R.string.present_unknown_verifier),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-        }
-    }
+    TrustWarningCard(text = stringResource(R.string.present_unknown_verifier))
 }
 
 /**
@@ -336,6 +376,7 @@ internal fun NoMatchNotice() {
 @Composable
 private fun PaymentCardCarousel(
     candidates: List<PresentationCandidate>,
+    payingQueryIds: List<String>,
     credentialsById: Map<String, Credential>,
     pagerState: PagerState,
 ) {
@@ -363,11 +404,13 @@ private fun PaymentCardCarousel(
                         page + 1,
                         candidates.size,
                     )
-                // A payment candidate is one card. If a request ever assigns several
-                // credentials to one candidate, the first is the paying instrument and the
-                // rest are supporting disclosures the payer does not choose between here.
+                // A payment candidate shows one card: the paying instrument. Credentials the
+                // verifier requested alongside it are not chosen between here — they are
+                // listed below the carousel by [SupportingDisclosures].
                 val paying =
-                    candidate.assignments.firstNotNullOfOrNull { credentialsById[it.credentialId] }
+                    splitAssignments(candidate, payingQueryIds)
+                        .first
+                        ?.let { credentialsById[it.credentialId] }
                 Box(modifier = Modifier.semantics { contentDescription = position }) {
                     PaymentPassCard(credential = paying)
                 }
@@ -388,6 +431,96 @@ private fun PaymentCardCarousel(
                 onSelect = { pagerState.requestScrollToPage(it) },
             )
         }
+    }
+}
+
+/**
+ * The credentials the verifier asked for alongside the payment — an age attestation, a
+ * loyalty card — listed beneath the paying card.
+ *
+ * Names each credential and the attributes requested from it, but not their *values*. A payer
+ * approving an amount needs to know they are also proving they are over 18; reading back the
+ * date of birth they already know is the general consent screen's job, not this screen's. It
+ * is the one place the payment screen departs from carrying no claim detail at all, because
+ * silently disclosing a second credential is worse than a little extra text.
+ */
+@Composable
+private fun SupportingDisclosures(
+    matches: List<DcqlMatcher.Match>,
+    credentialsById: Map<String, Credential>,
+    locale: Locale,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.present_also_sharing),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                matches.forEachIndexed { index, match ->
+                    if (index > 0) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    SupportingDisclosureRow(
+                        match = match,
+                        credential = credentialsById[match.credentialId],
+                        locale = locale,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One supporting credential: its display name, then the requested attributes as issuer-supplied
+ * labels on a single line. Falls back to the raw claim path when the credential carries no label
+ * metadata, and to a truncated credential id when the credential row has not loaded — the same
+ * degradation the general consent screen uses, so the two never disagree about a credential.
+ */
+@Composable
+private fun SupportingDisclosureRow(
+    match: DcqlMatcher.Match,
+    credential: Credential?,
+    locale: Locale,
+) {
+    val labels =
+        remember(credential?.id, locale) {
+            credential?.let { ClaimLabelResolver.resolve(it.displayMetadataJson, locale) }
+        }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text =
+                credential
+                    ?.let { CredentialDisplay.resolve(it).name }
+                    ?: match.credentialId.take(8),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text =
+                if (match.requestedClaimPaths.isEmpty()) {
+                    // A query with no `claims` member asks for the whole credential rather
+                    // than for named attributes, so there is nothing to enumerate.
+                    stringResource(R.string.present_no_fields_requested)
+                } else {
+                    match.requestedClaimPaths.joinToString(", ") { path ->
+                        labels?.labelFor(path) ?: path.joinToString(".")
+                    }
+                },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

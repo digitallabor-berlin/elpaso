@@ -2,18 +2,26 @@ package dev.digitallabor.elpaso.wallet.presentation.txdata
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.Stable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.GppMaybe
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -23,6 +31,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import dev.digitallabor.elpaso.wallet.R
 import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
@@ -40,7 +49,9 @@ import java.util.Locale
  * Rendering rules:
  * - `transaction_title` is the heading; falls back to a generic string when absent.
  * - `security_hint`, when present, MUST be displayed verbatim — never localized by
- *   the wallet (spec §3.2 of the metadata module).
+ *   the wallet (spec §3.2 of the metadata module). It is rendered as a SIBLING of the
+ *   data card, not a row inside it: a hint qualifies the transaction rather than being
+ *   one more field of it (see [SecurityHintBanner]).
  * - Each claim with a `display` array is rendered as `label: value` in CLAIMS-ARRAY
  *   order (not payload-key order) per spec §2.
  * - `value_type` and `display_type` are resolved by [ValueTypeFormatters]; the
@@ -55,38 +66,46 @@ fun DynamicTransactionDataBlock(
     modifier: Modifier = Modifier,
 ) {
     val payload = item.payloadScope
-    Card(
+    // The hint is scoped to THIS transaction_data entry, so it stays inside this
+    // composable (several entries may each carry their own) — but as a peer of the
+    // data card rather than a nested one.
+    Column(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
         ) {
-            // transaction_title is the SCREEN title per paso-proof-metadata.md §3.2 —
-            // lifted to the app bar by PresentScreen. We deliberately don't repeat it
-            // inside this card so the user doesn't see the same string twice.
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // transaction_title is the SCREEN title per paso-proof-metadata.md §3.2 —
+                // lifted to the app bar by PresentScreen. We deliberately don't repeat it
+                // inside this card so the user doesn't see the same string twice.
 
-            if (payload != null) {
-                metadata.claims
-                    .filter { it.display.isNotEmpty() }
-                    .forEach { claim ->
-                        ClaimRow(
-                            claim = claim,
-                            payload = payload,
-                            claimsArray = metadata.claims,
-                            locale = locale,
-                        )
-                    }
+                if (payload != null) {
+                    metadata.claims
+                        .filter { it.display.isNotEmpty() }
+                        .forEach { claim ->
+                            ClaimRow(
+                                claim = claim,
+                                payload = payload,
+                                claimsArray = metadata.claims,
+                                locale = locale,
+                            )
+                        }
+                }
             }
+        }
 
-            metadata.uiLabels.securityHint.pick(locale)?.let { hint ->
-                Spacer(Modifier.height(4.dp))
-                SecurityHintBanner(formatLabel(hint, metadata, payload, locale))
-            }
+        metadata.uiLabels.securityHint.pick(locale)?.let { hint ->
+            SecurityHintBanner(formatLabel(hint, metadata, payload, locale))
         }
     }
 }
@@ -101,28 +120,33 @@ private fun ClaimRow(
     val display = claim.display.pick(locale) ?: return
     val rawLabel = display.name ?: claim.path.joinToString(".")
     // display_type formats the LABEL using the same rules as value_type — spec §3.
-    val labelFormatted = ValueTypeFormatters.format(
-        value = kotlinx.serialization.json.JsonPrimitive(rawLabel),
-        valueType = display.displayType,
-        locale = locale,
-        resolveTemplate = { template, innerType ->
-            resolveTemplate(template, innerType, claimsArray, payload, locale)
-        },
-    )
+    val labelFormatted =
+        ValueTypeFormatters.format(
+            value = kotlinx.serialization.json.JsonPrimitive(rawLabel),
+            valueType = display.displayType,
+            locale = locale,
+            resolveTemplate = { template, innerType ->
+                resolveTemplate(template, innerType, claimsArray, payload, locale)
+            },
+        )
     val rawValueElement = ValueTypeFormatters.resolvePath(payload, claim.path)
-    val valueFormatted = ValueTypeFormatters.format(
-        value = if (claim.valueType?.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX) == true)
-            kotlinx.serialization.json.JsonPrimitive(
-                ValueTypeFormatters.asString(rawValueElement ?: kotlinx.serialization.json.JsonNull),
-            )
-        else rawValueElement,
-        valueType = claim.valueType,
-        locale = locale,
-        resolveTemplate = { template, innerType ->
-            resolveTemplate(template, innerType, claimsArray, payload, locale)
-        },
-        siblingLookup = { rel -> resolveSibling(payload, claim.path, rel) },
-    )
+    val valueFormatted =
+        ValueTypeFormatters.format(
+            value =
+                if (claim.valueType?.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX) == true) {
+                    kotlinx.serialization.json.JsonPrimitive(
+                        ValueTypeFormatters.asString(rawValueElement ?: kotlinx.serialization.json.JsonNull),
+                    )
+                } else {
+                    rawValueElement
+                },
+            valueType = claim.valueType,
+            locale = locale,
+            resolveTemplate = { template, innerType ->
+                resolveTemplate(template, innerType, claimsArray, payload, locale)
+            },
+            siblingLookup = { rel -> resolveSibling(payload, claim.path, rel) },
+        )
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         FormattedAsText(
@@ -131,44 +155,57 @@ private fun ClaimRow(
             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
         )
         when (valueFormatted) {
-            is ValueTypeFormatters.Formatted.LabelOnly -> Unit
-            is ValueTypeFormatters.Formatted.Image -> AsyncImage(
-                model = valueFormatted.uri,
-                contentDescription = rawLabel,
-                modifier = Modifier.fillMaxWidth().height(160.dp),
-            )
+            is ValueTypeFormatters.Formatted.LabelOnly -> {
+                Unit
+            }
+
+            is ValueTypeFormatters.Formatted.Image -> {
+                AsyncImage(
+                    model = valueFormatted.uri,
+                    contentDescription = rawLabel,
+                    modifier = Modifier.fillMaxWidth().height(160.dp),
+                )
+            }
+
             is ValueTypeFormatters.Formatted.Url -> {
                 val handler = LocalUriHandler.current
                 Text(
-                    text = AnnotatedString(
-                        text = valueFormatted.href,
-                        spanStyle = SpanStyle(
-                            color = MaterialTheme.colorScheme.primary,
-                            textDecoration = TextDecoration.Underline,
+                    text =
+                        AnnotatedString(
+                            text = valueFormatted.href,
+                            spanStyle =
+                                SpanStyle(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = TextDecoration.Underline,
+                                ),
                         ),
-                    ),
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
                 )
                 // Tap target: anywhere on the URL text. Compose-Material3 doesn't have
                 // a clickable Text overload natively; rely on enclosing card / use the
                 // platform URL handler when the layer wires up a click.
                 handler.toString() // suppress unused
             }
-            is ValueTypeFormatters.Formatted.MiniMarkdown ->
+
+            is ValueTypeFormatters.Formatted.MiniMarkdown -> {
                 Text(
                     text = renderMiniMarkdown(valueFormatted.text),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Medium,
                 )
-            is ValueTypeFormatters.Formatted.PlainText ->
+            }
+
+            is ValueTypeFormatters.Formatted.PlainText -> {
                 Text(
                     text = valueFormatted.text,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Medium,
                 )
+            }
         }
     }
 }
@@ -189,23 +226,24 @@ private fun resolveTemplate(
 ): ValueTypeFormatters.Formatted? {
     val PLACEHOLDER = Regex("""\{(\d+)\}""")
     var dropEntry = false
-    val substituted = PLACEHOLDER.replace(template) { match ->
-        if (dropEntry) return@replace ""
-        val idx = match.groupValues[1].toInt()
-        val target = claimsArray.getOrNull(idx) ?: return@replace match.value
-        val targetValue = ValueTypeFormatters.resolvePath(payload, target.path)
-        if (targetValue == null) {
-            dropEntry = true
-            return@replace ""
+    val substituted =
+        PLACEHOLDER.replace(template) { match ->
+            if (dropEntry) return@replace ""
+            val idx = match.groupValues[1].toInt()
+            val target = claimsArray.getOrNull(idx) ?: return@replace match.value
+            val targetValue = ValueTypeFormatters.resolvePath(payload, target.path)
+            if (targetValue == null) {
+                dropEntry = true
+                return@replace ""
+            }
+            when (val formatted = ValueTypeFormatters.format(targetValue, target.valueType, locale)) {
+                is ValueTypeFormatters.Formatted.PlainText -> formatted.text
+                is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
+                is ValueTypeFormatters.Formatted.Url -> formatted.href
+                is ValueTypeFormatters.Formatted.Image -> formatted.uri
+                is ValueTypeFormatters.Formatted.LabelOnly -> ""
+            }
         }
-        when (val formatted = ValueTypeFormatters.format(targetValue, target.valueType, locale)) {
-            is ValueTypeFormatters.Formatted.PlainText -> formatted.text
-            is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
-            is ValueTypeFormatters.Formatted.Url -> formatted.href
-            is ValueTypeFormatters.Formatted.Image -> formatted.uri
-            is ValueTypeFormatters.Formatted.LabelOnly -> ""
-        }
-    }
     if (dropEntry) return null
     // Apply the inner value_type to the now-interpolated string.
     return when (innerType) {
@@ -220,13 +258,18 @@ private fun resolveTemplate(
  * claim's leaf — used for `image` value_type to find a sibling `*#integrity` claim
  * per paso-view.md §3.
  */
-private fun resolveSibling(payload: JsonObject, path: List<String>, relativeKey: String): JsonElement? {
+private fun resolveSibling(
+    payload: JsonObject,
+    path: List<String>,
+    relativeKey: String,
+): JsonElement? {
     if (path.isEmpty()) return null
-    val parent = if (path.size == 1) {
-        payload
-    } else {
-        ValueTypeFormatters.resolvePath(payload, path.dropLast(1)) as? JsonObject ?: return null
-    }
+    val parent =
+        if (path.size == 1) {
+            payload
+        } else {
+            ValueTypeFormatters.resolvePath(payload, path.dropLast(1)) as? JsonObject ?: return null
+        }
     val leafKey = path.last() + relativeKey
     return parent[leafKey]
 }
@@ -238,14 +281,23 @@ private fun FormattedAsText(
     color: androidx.compose.ui.graphics.Color,
 ) {
     when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown ->
+        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
             Text(text = renderMiniMarkdown(formatted.text), style = style, color = color)
-        is ValueTypeFormatters.Formatted.PlainText ->
+        }
+
+        is ValueTypeFormatters.Formatted.PlainText -> {
             Text(text = formatted.text, style = style, color = color)
-        is ValueTypeFormatters.Formatted.Url ->
+        }
+
+        is ValueTypeFormatters.Formatted.Url -> {
             Text(text = formatted.href, style = style, color = color)
+        }
+
         is ValueTypeFormatters.Formatted.LabelOnly,
-        is ValueTypeFormatters.Formatted.Image -> Unit
+        is ValueTypeFormatters.Formatted.Image,
+        -> {
+            Unit
+        }
     }
 }
 
@@ -254,48 +306,60 @@ private fun FormattedAsText(
  * `**strong**`/`__strong__`, and `<u>underline</u>`. Anything else stays literal —
  * the spec mandates this exact subset.
  */
-internal fun renderMiniMarkdown(input: String): AnnotatedString = buildAnnotatedString {
-    var i = 0
-    while (i < input.length) {
-        val ch = input[i]
-        when {
-            // strong: ** or __
-            (ch == '*' || ch == '_') && i + 1 < input.length && input[i + 1] == ch -> {
-                val close = input.indexOf("$ch$ch", i + 2)
-                if (close > 0) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(input.substring(i + 2, close))
+internal fun renderMiniMarkdown(input: String): AnnotatedString =
+    buildAnnotatedString {
+        var i = 0
+        while (i < input.length) {
+            val ch = input[i]
+            when {
+                // strong: ** or __
+                (ch == '*' || ch == '_') && i + 1 < input.length && input[i + 1] == ch -> {
+                    val close = input.indexOf("$ch$ch", i + 2)
+                    if (close > 0) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(input.substring(i + 2, close))
+                        }
+                        i = close + 2
+                        continue
+                    } else {
+                        append(ch)
                     }
-                    i = close + 2
-                    continue
-                } else append(ch)
-            }
-            // emphasis: * or _
-            ch == '*' || ch == '_' -> {
-                val close = input.indexOf(ch, i + 1)
-                if (close > 0) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(input.substring(i + 1, close))
+                }
+
+                // emphasis: * or _
+                ch == '*' || ch == '_' -> {
+                    val close = input.indexOf(ch, i + 1)
+                    if (close > 0) {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(input.substring(i + 1, close))
+                        }
+                        i = close + 1
+                        continue
+                    } else {
+                        append(ch)
                     }
-                    i = close + 1
-                    continue
-                } else append(ch)
-            }
-            ch == '<' && input.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
-                val close = input.indexOf("</u>", i + 3, ignoreCase = true)
-                if (close > 0) {
-                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
-                        append(input.substring(i + 3, close))
+                }
+
+                ch == '<' && input.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
+                    val close = input.indexOf("</u>", i + 3, ignoreCase = true)
+                    if (close > 0) {
+                        withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                            append(input.substring(i + 3, close))
+                        }
+                        i = close + 4
+                        continue
+                    } else {
+                        append(ch)
                     }
-                    i = close + 4
-                    continue
-                } else append(ch)
+                }
+
+                else -> {
+                    append(ch)
+                }
             }
-            else -> append(ch)
+            i++
         }
-        i++
     }
-}
 
 /**
  * Issuer-supplied security hint — rendered verbatim per the metadata spec §3.2
@@ -303,22 +367,44 @@ internal fun renderMiniMarkdown(input: String): AnnotatedString = buildAnnotated
  * it"). The string never passes through `stringResource`. The label's own
  * `value_type` is applied per §3.2 — typically plain text but mini_markdown is
  * permitted so emphasis stays meaningful.
+ *
+ * Presented as a caution, deliberately NOT as an error: this hint accompanies every
+ * legitimate transaction of its type, so reusing `errorContainer` here would dilute
+ * the one red signal on this screen that means stop — `UntrustedNotice`'s hard trust
+ * failure. Geometry matches that notice (20dp corners, 24dp leading icon, 18/16dp
+ * padding) so the screen's warnings still read as one family; only the severity tier
+ * differs.
+ *
+ * No `fontWeight` is imposed on the text: the hint may be `mini_markdown`, and a
+ * blanket SemiBold would flatten the issuer's own `**strong**` emphasis.
  */
 @Composable
 private fun SecurityHintBanner(hint: ValueTypeFormatters.Formatted) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
-        FormattedLabel(
-            formatted = hint,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(12.dp),
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.GppMaybe,
+                // Announced before the verbatim hint so TalkBack conveys the ROLE of
+                // the text. Labelling the icon is added context, not an alteration of
+                // the issuer's string, so §3.2 is untouched.
+                contentDescription = stringResource(R.string.present_security_hint),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+            FormattedLabel(
+                formatted = hint,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+        }
     }
 }
 
@@ -333,15 +419,19 @@ private fun formatLabel(
     metadata: TransactionDataTypeMetadata,
     payload: JsonObject?,
     locale: Locale,
-): ValueTypeFormatters.Formatted = ValueTypeFormatters.format(
-    value = kotlinx.serialization.json.JsonPrimitive(label.value),
-    valueType = label.valueType,
-    locale = locale,
-    resolveTemplate = { template, innerType ->
-        if (payload == null) ValueTypeFormatters.Formatted.PlainText(template)
-        else resolveTemplate(template, innerType, metadata.claims, payload, locale)
-    },
-)
+): ValueTypeFormatters.Formatted =
+    ValueTypeFormatters.format(
+        value = kotlinx.serialization.json.JsonPrimitive(label.value),
+        valueType = label.valueType,
+        locale = locale,
+        resolveTemplate = { template, innerType ->
+            if (payload == null) {
+                ValueTypeFormatters.Formatted.PlainText(template)
+            } else {
+                resolveTemplate(template, innerType, metadata.claims, payload, locale)
+            }
+        },
+    )
 
 /**
  * Renders a [ValueTypeFormatters.Formatted] label with shared styling. Image/url
@@ -357,7 +447,7 @@ private fun FormattedLabel(
     fontWeight: FontWeight? = null,
 ) {
     when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown ->
+        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
             Text(
                 text = renderMiniMarkdown(formatted.text),
                 style = style,
@@ -365,7 +455,9 @@ private fun FormattedLabel(
                 fontWeight = fontWeight,
                 modifier = modifier,
             )
-        is ValueTypeFormatters.Formatted.PlainText ->
+        }
+
+        is ValueTypeFormatters.Formatted.PlainText -> {
             Text(
                 text = formatted.text,
                 style = style,
@@ -373,7 +465,9 @@ private fun FormattedLabel(
                 fontWeight = fontWeight,
                 modifier = modifier,
             )
-        is ValueTypeFormatters.Formatted.Url ->
+        }
+
+        is ValueTypeFormatters.Formatted.Url -> {
             Text(
                 text = formatted.href,
                 style = style,
@@ -381,8 +475,13 @@ private fun FormattedLabel(
                 fontWeight = fontWeight,
                 modifier = modifier,
             )
+        }
+
         is ValueTypeFormatters.Formatted.Image,
-        is ValueTypeFormatters.Formatted.LabelOnly -> Unit
+        is ValueTypeFormatters.Formatted.LabelOnly,
+        -> {
+            Unit
+        }
     }
 }
 

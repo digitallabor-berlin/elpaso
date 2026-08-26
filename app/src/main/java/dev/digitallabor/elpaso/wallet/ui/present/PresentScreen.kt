@@ -500,6 +500,7 @@ private fun ResolvedContent(
             candidates = resolved.candidates,
             credentialsById = credentialsById,
             pagerState = pagerState,
+            locale = locale,
             authorizeLabel = dynamicAffirmative,
             authorizeFallback = authorizeFallback,
             denialLabel = dynamicDenial,

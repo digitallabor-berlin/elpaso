@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,11 +22,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -57,6 +59,7 @@ import dev.digitallabor.elpaso.wallet.domain.model.PassArt
 import dev.digitallabor.elpaso.wallet.issuance.IssuanceClient
 import dev.digitallabor.elpaso.wallet.ui.common.ErrorModal
 import dev.digitallabor.elpaso.wallet.ui.common.QrScannerView
+import dev.digitallabor.elpaso.wallet.ui.common.TrustWarningCard
 import dev.digitallabor.elpaso.wallet.ui.nav.DeepLink
 import dev.digitallabor.elpaso.wallet.ui.nav.DeepLinkRouter
 import eu.europa.ec.eudi.openid4vci.TxCodeInputMode
@@ -199,9 +202,9 @@ fun AddOfferFlow(
             when (s) {
                 IssuanceClient.State.Idle, IssuanceClient.State.Resolving -> {
                     // Resolving an incoming deep-link offer — no scanner shown.
-                    Text(
-                        stringResource(R.string.addoffer_resolving),
-                        style = MaterialTheme.typography.headlineSmall,
+                    IssuanceProgress(
+                        headline = stringResource(R.string.addoffer_resolving),
+                        support = stringResource(R.string.addoffer_resolving_support),
                     )
                 }
 
@@ -225,39 +228,58 @@ fun AddOfferFlow(
                                 .padding(24.dp)
                                 .fillMaxWidth()
                                 .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
-                        Text(stringResource(R.string.add_consent_title), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            stringResource(R.string.addoffer_issuer, s.issuer),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        if (!s.trusted) {
+                        // Title + who is offering, read as one block. Kept quiet on purpose: the
+                        // credential cards below carry PassArt's gradient and are the screen's
+                        // hero, so a second competing weight center here would fight them.
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                stringResource(R.string.add_unknown_issuer),
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
+                                stringResource(R.string.add_consent_title),
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Text(
+                                stringResource(R.string.addoffer_issuer, s.issuer),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        s.configurations.forEach { cfg ->
-                            val checked = cfg.configurationId in selected
-                            OfferedCredentialCard(
-                                cfg = cfg,
-                                checked = checked,
-                                onToggle = {
-                                    selected =
-                                        if (checked) {
-                                            selected - cfg.configurationId
-                                        } else {
-                                            selected + cfg.configurationId
-                                        }
-                                },
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
+
+                        // The same card the presentation flow raises for an untrusted verifier.
+                        // Continue is already disabled while !trusted; this is what says why. It
+                        // used to be a red bodySmall line that was easy to scroll straight past.
+                        if (!s.trusted) {
+                            TrustWarningCard(text = stringResource(R.string.add_unknown_issuer))
                         }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Labelled "offered" rather than left bare: these cards look exactly
+                            // like the ones on the home deck, and nothing else on the screen says
+                            // they are not in the wallet yet.
+                            Text(
+                                text = stringResource(R.string.add_offered_credentials),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                            s.configurations.forEach { cfg ->
+                                val checked = cfg.configurationId in selected
+                                OfferedCredentialCard(
+                                    cfg = cfg,
+                                    checked = checked,
+                                    onToggle = {
+                                        selected =
+                                            if (checked) {
+                                                selected - cfg.configurationId
+                                            } else {
+                                                selected + cfg.configurationId
+                                            }
+                                    },
+                                )
+                            }
+                        }
+
                         if (txReq != null) {
-                            Spacer(modifier = Modifier.height(16.dp))
                             OutlinedTextField(
                                 value = txCode,
                                 onValueChange = { input ->
@@ -286,13 +308,27 @@ fun AddOfferFlow(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Geometry deliberately matches ActionRow on the presentation side —
+                        // 64dp tall, 20dp corners, tonal cancel against a filled primary. Not
+                        // shared as a function: ActionRow's signature is built around
+                        // verifier-supplied Formatted labels, which an offer never carries.
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                                Text(stringResource(R.string.add_consent_cancel))
+                            FilledTonalButton(
+                                onClick = onCancel,
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .height(64.dp),
+                                shape = RoundedCornerShape(20.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.add_consent_cancel),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
                             }
                             Button(
                                 enabled = selected.isNotEmpty() && txCodeOk && s.trusted,
@@ -304,9 +340,16 @@ fun AddOfferFlow(
                                         )
                                     }
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .height(64.dp),
+                                shape = RoundedCornerShape(20.dp),
                             ) {
-                                Text(stringResource(R.string.add_consent_continue))
+                                Text(
+                                    stringResource(R.string.add_consent_continue),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
                             }
                         }
                     }
@@ -321,11 +364,17 @@ fun AddOfferFlow(
                                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         runCatching { context.startActivity(intent) }
                     }
-                    Text(stringResource(R.string.addoffer_browser_continue))
+                    IssuanceProgress(
+                        headline = stringResource(R.string.addoffer_browser_continue),
+                        support = stringResource(R.string.addoffer_browser_support),
+                    )
                 }
 
                 IssuanceClient.State.Issuing -> {
-                    Text(stringResource(R.string.addoffer_issuing))
+                    IssuanceProgress(
+                        headline = stringResource(R.string.addoffer_issuing),
+                        support = stringResource(R.string.addoffer_issuing_support),
+                    )
                 }
 
                 is IssuanceClient.State.Done -> {
@@ -346,17 +395,50 @@ private fun failureHeadline(phase: IssuanceClient.State.Failed.Phase): Int =
         IssuanceClient.State.Failed.Phase.Issuance -> R.string.addoffer_failed_generic
     }
 
+/**
+ * The one surface for every "work in flight" state of the issuance flow: resolving an offer,
+ * waiting on the browser for an authorization-code grant, and issuing.
+ *
+ * All three used to be a single unstyled centered [Text]. During issuing in particular the
+ * wallet is generating keys and calling the issuer, so a static line of text reads as a hung
+ * screen — an indeterminate indicator is the difference between "working" and "stuck".
+ *
+ * [support] carries the sentence the headline cannot: what is happening, or what the user is
+ * expected to do. The browser state needs it most — nothing previously told the user to come
+ * back to the wallet after signing in.
+ */
 @Composable
-private fun Row(
-    modifier: Modifier,
-    horizontalArrangement: Arrangement.HorizontalOrVertical,
-    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+private fun IssuanceProgress(
+    headline: String,
+    support: String,
 ) {
-    androidx.compose.foundation.layout.Row(
-        modifier = modifier,
-        horizontalArrangement = horizontalArrangement,
-        content = content,
-    )
+    Column(
+        modifier = Modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(48.dp),
+            strokeWidth = 5.dp,
+        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = headline,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = support,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }
 
 /**
