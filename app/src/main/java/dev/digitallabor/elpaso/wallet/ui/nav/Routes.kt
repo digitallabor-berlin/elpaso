@@ -44,16 +44,6 @@ sealed interface Route {
          * [DcApiSelection] for why this is a set rather than a single id.
          */
         val dcApiSelection: DcApiSelection? = null,
-        /**
-         * True when Credential Manager / Play Services performed a
-         * `BIOMETRIC_STRONG`/`BIOMETRIC` authentication for this DC API request before
-         * launching us — i.e. `ProviderGetCredentialRequest.biometricPromptResult.
-         * authenticationResult.authenticationType == TYPE_BIOMETRIC`. If true, the
-         * wallet can skip its own BiometricPrompt; otherwise it must prompt (the
-         * platform won't forward the response back to the verifier without an inline
-         * user gesture).
-         */
-        val systemPreAuthBiometric: Boolean = false,
     ) : Route
 
     data object Settings : Route

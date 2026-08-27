@@ -55,19 +55,16 @@ class DcPresentationActivity : FragmentActivity() {
         val selection = resolveSelection(getRequest)
         val callingAppOrigin = computeCallingAppOrigin(getRequest)
         // Pre-auth type tells us whether Credential Manager's prompt was biometric vs
-        // device-credential. With the device key configured as time-bound BIOMETRIC_STRONG
-        // (see KeyManager.AUTH_VALIDITY_SECONDS), a successful biometric pre-auth lets
-        // BiometricAuthorizer skip its own prompt. A device-credential pre-auth doesn't
-        // unlock the key, so a second prompt is unavoidable for those users.
+        // device-credential. Read for diagnostics only: it is null on every registry-based
+        // DC API request today, because `BiometricPromptData` — the API that embeds a
+        // biometric in the Credential Manager selector — is scoped to `CredentialEntry` /
+        // `CreateEntry`, and androidx.credentials.registry (through 1.0.0-alpha05) exposes
+        // no equivalent for `DigitalCredentialEntry`. Kept in the log because a non-null
+        // value here would be the signal that the platform gained that capability.
         val preAuthType =
             runCatching {
                 getRequest.biometricPromptResult?.authenticationResult?.authenticationType
             }.getOrNull()
-        // `BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC == 2`. Anything else
-        // (null / TYPE_DEVICE_CREDENTIAL = 1) means we still need our own biometric
-        // prompt to provide the user-gesture-with-consent the platform expects before
-        // it forwards our response to the verifier.
-        val systemPreAuthBiometric = preAuthType == 2
         Log.i(
             LOG_TAG,
             "request received options=${getRequest.credentialOptions.size} " +
@@ -77,7 +74,7 @@ class DcPresentationActivity : FragmentActivity() {
                 "selected_credential_ids=${selection?.credentialIds} " +
                 "selected_pins=${selection?.assignmentPins} " +
                 "calling_package=${getRequest.callingAppInfo.packageName} origin=$callingAppOrigin " +
-                "pre_auth_type=$preAuthType system_pre_auth_biometric=$systemPreAuthBiometric",
+                "pre_auth_type=$preAuthType",
         )
 
         setContent {

@@ -261,17 +261,13 @@ fun PresentScreen(
                     // Suspending wrapper around the callback-based BiometricAuthorizer so we
                     // can prompt for each device key sequentially when the request requires
                     // multiple credentials (DCQL `credential_sets`).
-                    suspend fun promptSignature(
-                        match: DcqlMatcher.Match,
-                        skipPromptIfUnlocked: Boolean,
-                    ): java.security.Signature =
+                    suspend fun promptSignatures(matches: List<DcqlMatcher.Match>): Map<String, java.security.Signature> =
                         kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                            biometric.authorize(
+                            biometric.authorizeAll(
                                 activity = context as FragmentActivity,
-                                deviceKeyAlias = "cred_${match.credentialId}",
-                                skipPromptIfUnlocked = skipPromptIfUnlocked,
-                                onAuthorized = { sig ->
-                                    if (cont.isActive) cont.resumeWith(Result.success(sig))
+                                deviceKeyAliases = matches.map { "cred_${it.credentialId}" },
+                                onAuthorized = { signatures ->
+                                    if (cont.isActive) cont.resumeWith(Result.success(signatures))
                                 },
                                 onError = { msg ->
                                     if (cont.isActive) cont.resumeWith(Result.failure(SecurityException(msg)))
@@ -282,9 +278,20 @@ fun PresentScreen(
                     val authorize: (List<DcqlMatcher.Match>) -> Unit = { matches ->
                         scope.launch {
                             try {
+                                // One prompt covers every time-bound device key, so a
+                                // multi-credential `credential_sets` response no longer
+                                // costs one scan per credential. Legacy per-use keys still
+                                // get their own prompt — see BiometricAuthorizer.
+                                val signatures = promptSignatures(matches)
                                 val pairs =
                                     matches.map { m ->
-                                        m to promptSignature(m, route.systemPreAuthBiometric)
+                                        m to
+                                            (
+                                                signatures["cred_${m.credentialId}"]
+                                                    ?: throw SecurityException(
+                                                        "No authorised signature for ${m.credentialId}",
+                                                    )
+                                            )
                                     }
                                 if (isDcApi) {
                                     client

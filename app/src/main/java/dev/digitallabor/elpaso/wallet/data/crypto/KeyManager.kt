@@ -2,9 +2,11 @@ package dev.digitallabor.elpaso.wallet.data.crypto
 
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import androidx.biometric.BiometricManager
+import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -22,7 +24,6 @@ import java.security.spec.ECGenParameterSpec
  * before [signAuthorised] is called, so the caller drives the BiometricPrompt flow.
  */
 class KeyManager {
-
     fun createDeviceKey(alias: String): PublicKey {
         val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (ks.containsAlias(alias)) {
@@ -48,33 +49,49 @@ class KeyManager {
      * Synchronous, non-interactive signature for keys created with `requireAuth = false`
      * (currently only the DPoP key). Throws if invoked with a key that's auth-gated.
      */
-    fun signSilently(alias: String, data: ByteArray): ByteArray {
+    fun signSilently(
+        alias: String,
+        data: ByteArray,
+    ): ByteArray {
         val pk = privateKey(alias)
-        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).apply {
-            initSign(pk)
-            update(data)
-        }
+        val signature =
+            Signature.getInstance(SIGNATURE_ALGORITHM).apply {
+                initSign(pk)
+                update(data)
+            }
         return signature.sign()
     }
 
-    private fun generate(alias: String, requireAuth: Boolean, requireStrongBox: Boolean): PublicKey {
-        val builder = KeyGenParameterSpec.Builder(
-            alias,
-            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
-        )
-            .setAlgorithmParameterSpec(ECGenParameterSpec(EC_CURVE))
-            .setDigests(KeyProperties.DIGEST_SHA256)
-            .setUserAuthenticationRequired(requireAuth)
+    private fun generate(
+        alias: String,
+        requireAuth: Boolean,
+        requireStrongBox: Boolean,
+    ): PublicKey {
+        val builder =
+            KeyGenParameterSpec
+                .Builder(
+                    alias,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+                ).setAlgorithmParameterSpec(ECGenParameterSpec(EC_CURVE))
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setUserAuthenticationRequired(requireAuth)
 
         if (requireAuth && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Per-use auth: every Signature.sign() requires a fresh BiometricPrompt with
-            // the Signature wrapped in a CryptoObject. Time-bound mode (timeout > 0) was
-            // tried but on this AOSP impl `Signature.initSign(privateKey)` itself probes
-            // the auth state for time-bound keys and throws UserNotAuthenticatedException
-            // when there's no recent biometric — making it impossible to build the
-            // CryptoObject before the prompt has run.
+            // Time-bound auth: any BIOMETRIC_STRONG authentication in the last
+            // AUTH_VALIDITY_SECONDS authorises this key. That is what lets a single prompt
+            // cover a whole `credential_sets` presentation — per-use auth (timeout 0)
+            // authorises exactly one Signature, so an N-credential response cost N scans.
+            //
+            // The trade-off, deliberately accepted: the biometric is no longer
+            // cryptographically bound to each individual signature via CryptoObject, only
+            // to a recent strong authentication. The `bio_strong` AMR claim stays truthful.
+            //
+            // `Signature.initSign(privateKey)` throws UserNotAuthenticatedException for
+            // these keys until an auth has happened, so the CryptoObject cannot be built
+            // up front — BiometricAuthorizer runs a CryptoObject-less prompt first and
+            // initialises the Signature afterwards.
             builder.setUserAuthenticationParameters(
-                /* timeoutSeconds = */ 0,
+                AUTH_VALIDITY_SECONDS,
                 KeyProperties.AUTH_BIOMETRIC_STRONG,
             )
         }
@@ -87,8 +104,11 @@ class KeyManager {
             kpg.initialize(builder.build())
             kpg.generateKeyPair().public
         } catch (_: StrongBoxUnavailableException) {
-            if (requireStrongBox) generate(alias, requireAuth, requireStrongBox = false)
-            else throw IllegalStateException("Failed to generate key '$alias' without StrongBox")
+            if (requireStrongBox) {
+                generate(alias, requireAuth, requireStrongBox = false)
+            } else {
+                throw IllegalStateException("Failed to generate key '$alias' without StrongBox")
+            }
         }
     }
 
@@ -97,8 +117,7 @@ class KeyManager {
         if (ks.containsAlias(alias)) ks.deleteEntry(alias)
     }
 
-    fun publicKey(alias: String): ECPublicKey =
-        keyStore().getCertificate(alias).publicKey as ECPublicKey
+    fun publicKey(alias: String): ECPublicKey = keyStore().getCertificate(alias).publicKey as ECPublicKey
 
     fun keyPair(alias: String): KeyPair {
         val ks = keyStore()
@@ -106,8 +125,7 @@ class KeyManager {
         return KeyPair(entry.certificate.publicKey, entry.privateKey)
     }
 
-    fun privateKey(alias: String): PrivateKey =
-        (keyStore().getEntry(alias, null) as KeyStore.PrivateKeyEntry).privateKey
+    fun privateKey(alias: String): PrivateKey = (keyStore().getEntry(alias, null) as KeyStore.PrivateKeyEntry).privateKey
 
     /**
      * Returns an initialized [Signature] for the given alias. Wrap this in
@@ -118,7 +136,30 @@ class KeyManager {
         return Signature.getInstance(SIGNATURE_ALGORITHM).apply { initSign(pk) }
     }
 
-    fun signAuthorised(signature: Signature, data: ByteArray): ByteArray {
+    /**
+     * Whether [alias] accepts a recent BIOMETRIC_STRONG auth (time-bound) rather than
+     * demanding a CryptoObject per signature (per-use).
+     *
+     * Keystore auth parameters are fixed at generation time and cannot be migrated, so
+     * credentials issued before the switch to time-bound keys stay per-use for their whole
+     * life. Callers must therefore branch per key rather than assume a single policy —
+     * see [dev.digitallabor.elpaso.wallet.session.planBiometricAuth].
+     */
+    fun usesTimeBoundAuth(alias: String): Boolean {
+        val pk = privateKey(alias)
+        val info =
+            KeyFactory
+                .getInstance(pk.algorithm, ANDROID_KEYSTORE)
+                .getKeySpec(pk, KeyInfo::class.java)
+        // -1 (or 0) means "authenticate for every use"; a positive value is the validity
+        // window in seconds.
+        return info.isUserAuthenticationRequired && info.userAuthenticationValidityDurationSeconds > 0
+    }
+
+    fun signAuthorised(
+        signature: Signature,
+        data: ByteArray,
+    ): ByteArray {
         signature.update(data)
         return signature.sign()
     }
