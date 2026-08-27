@@ -59,6 +59,69 @@ sealed interface Route {
     data object Settings : Route
 }
 
+/**
+ * Nesting level of a route, used to pick the direction of the screen transition.
+ * Only [Route.Home] sits at the root.
+ */
+internal fun Route.depth(): Int =
+    when (this) {
+        Route.Home -> 0
+
+        is Route.Detail, Route.AddScan, is Route.OfferConsent, is Route.PresentScan,
+        is Route.Present, Route.Settings,
+        -> 1
+    }
+
+/**
+ * Parent route to pop to on system back / edge-swipe. Returns `null` only for [Route.Home]
+ * so the platform handles back there (i.e. moves the activity to background). Settings is
+ * a pushed screen now that the tab bar is gone, so back returns to the deck.
+ */
+internal fun Route.parent(): Route? =
+    when (this) {
+        Route.Home -> null
+        is Route.Detail -> Route.Home
+        Route.AddScan -> Route.Home
+        is Route.OfferConsent -> Route.Home
+        is Route.PresentScan -> Route.Home
+        is Route.Present -> Route.Home
+        Route.Settings -> Route.Home
+    }
+
+/**
+ * Whether the app-lock screen should cover the content.
+ *
+ * [requireAppUnlock] is the host activity's opt-out. `DcPresentationActivity` passes false:
+ * a DC API presentation discloses nothing without a per-credential `BIOMETRIC_STRONG` +
+ * `CryptoObject` prompt, which is strictly stronger than the lock screen's
+ * `BIOMETRIC_WEAK | DEVICE_CREDENTIAL`, so the lock is pure friction there. Every other
+ * host — including `DcIssuanceActivity`, where the lock may be the only gate — keeps it.
+ */
+internal fun shouldShowAppLock(
+    locked: Boolean,
+    requireAppUnlock: Boolean,
+): Boolean = locked && requireAppUnlock
+
+/**
+ * Where system back should navigate, or `null` when it must not navigate at all.
+ *
+ * [hostedByDcApi] is load bearing for security, not just ergonomics: [Route.Present]'s
+ * parent is [Route.Home], so without this a back gesture inside the PendingIntent-launched
+ * DC API activity would render the full credential deck — and with the app lock skipped
+ * (see [shouldShowAppLock]) that deck would be unauthenticated. In DC API mode the host
+ * cancels the platform request instead.
+ */
+internal fun backTargetFor(
+    current: Route,
+    showingAppLock: Boolean,
+    hostedByDcApi: Boolean,
+): Route? =
+    when {
+        showingAppLock -> null
+        hostedByDcApi -> null
+        else -> current.parent()
+    }
+
 /** Wraps an inbound deep link / DC API entry until the UI is ready to consume it. */
 sealed interface DeepLink {
     data class CredentialOffer(

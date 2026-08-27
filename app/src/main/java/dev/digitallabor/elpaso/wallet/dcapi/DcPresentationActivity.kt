@@ -88,8 +88,21 @@ class DcPresentationActivity : FragmentActivity() {
                             rawRequestJson = rawJson,
                             callingPackage = callingAppOrigin,
                             dcApiSelection = selection,
-                            systemPreAuthBiometric = systemPreAuthBiometric,
                         ),
+                    // No app-lock screen on this path. Nothing is disclosed without the
+                    // BIOMETRIC_STRONG prompt BiometricAuthorizer raises before signing,
+                    // which is a strictly stronger gate than the lock screen's
+                    // BIOMETRIC_WEAK | DEVICE_CREDENTIAL — so the lock only added a third
+                    // scan on top of the system selector and the signing prompt(s).
+                    //
+                    // Deliberately NOT done in DcIssuanceActivity: issuance persists a
+                    // credential without necessarily raising any biometric of its own, so
+                    // there the lock may be the only gate (see that class's KDoc).
+                    //
+                    // Safe only because WalletAppRoot turns back into a platform
+                    // cancellation in DC API mode; otherwise back would pop to Route.Home
+                    // and render the credential deck unauthenticated.
+                    requireAppUnlock = false,
                     onDcApiResult = { responseJson -> finishWithSuccess(responseJson) },
                     onDcApiCancel = { finishWithCancellation() },
                     onDcApiError = { message -> finishWithException(message) },

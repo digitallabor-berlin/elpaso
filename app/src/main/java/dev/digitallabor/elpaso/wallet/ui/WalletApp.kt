@@ -45,6 +45,9 @@ import dev.digitallabor.elpaso.wallet.ui.lock.LockScreen
 import dev.digitallabor.elpaso.wallet.ui.nav.DeepLink
 import dev.digitallabor.elpaso.wallet.ui.nav.DeepLinkRouter
 import dev.digitallabor.elpaso.wallet.ui.nav.Route
+import dev.digitallabor.elpaso.wallet.ui.nav.backTargetFor
+import dev.digitallabor.elpaso.wallet.ui.nav.depth
+import dev.digitallabor.elpaso.wallet.ui.nav.shouldShowAppLock
 import dev.digitallabor.elpaso.wallet.ui.present.PresentScanScreen
 import dev.digitallabor.elpaso.wallet.ui.present.PresentScreen
 import dev.digitallabor.elpaso.wallet.ui.settings.SettingsScreen
@@ -69,6 +72,12 @@ fun WalletApp() {
 @Composable
 fun WalletAppRoot(
     startRoute: Route,
+    /**
+     * Whether the app-lock screen gates this host's content. See
+     * [dev.digitallabor.elpaso.wallet.ui.nav.shouldShowAppLock] for why
+     * `DcPresentationActivity` — and only it — passes false.
+     */
+    requireAppUnlock: Boolean = true,
     onDcApiResult: ((responseJson: String) -> Unit)? = null,
     onDcApiCancel: (() -> Unit)? = null,
     onDcApiError: ((message: String) -> Unit)? = null,
@@ -81,7 +90,14 @@ fun WalletAppRoot(
     val router: DeepLinkRouter = koinInject()
     val appLock: AppLockManager = koinInject()
     val lockState = appLock.state.collectAsState()
-    val locked = lockState.value is LockState.Locked
+    val locked =
+        shouldShowAppLock(
+            locked = lockState.value is LockState.Locked,
+            requireAppUnlock = requireAppUnlock,
+        )
+    // Any DC API host supplies a cancel callback; that is what marks this composition as
+    // running on behalf of the platform rather than inside the wallet's own task.
+    val hostedByDcApi = onDcApiCancel != null
 
     LaunchedEffect(router.events) {
         router.events.collect { v ->
@@ -95,9 +111,19 @@ fun WalletAppRoot(
     // System back / edge-swipe gesture. Every route except Home pops to its parent;
     // Home and the lock screen let the platform handle it (i.e. the activity moves to
     // background).
-    val backTarget = if (locked) null else current.parent()
-    BackHandler(enabled = backTarget != null) {
-        backTarget?.let { current = it }
+    val backTarget =
+        backTargetFor(
+            current = current,
+            showingAppLock = locked,
+            hostedByDcApi = hostedByDcApi,
+        )
+    // In DC API mode back must answer the platform (a cancellation) instead of popping to
+    // Home inside an activity the system launched for a single screen.
+    BackHandler(enabled = backTarget != null || (hostedByDcApi && !locked)) {
+        when {
+            backTarget != null -> current = backTarget
+            hostedByDcApi && !locked -> onDcApiCancel?.invoke()
+        }
     }
 
     Scaffold(
@@ -255,28 +281,3 @@ private fun SettingsButton(
         }
     }
 }
-
-private fun Route.depth(): Int =
-    when (this) {
-        Route.Home -> 0
-
-        is Route.Detail, Route.AddScan, is Route.OfferConsent, is Route.PresentScan,
-        is Route.Present, Route.Settings,
-        -> 1
-    }
-
-/**
- * Parent route to pop to on system back / edge-swipe. Returns `null` only for [Route.Home]
- * so the platform handles back there (i.e. moves the activity to background). Settings is
- * a pushed screen now that the tab bar is gone, so back returns to the deck.
- */
-private fun Route.parent(): Route? =
-    when (this) {
-        Route.Home -> null
-        is Route.Detail -> Route.Home
-        Route.AddScan -> Route.Home
-        is Route.OfferConsent -> Route.Home
-        is Route.PresentScan -> Route.Home
-        is Route.Present -> Route.Home
-        Route.Settings -> Route.Home
-    }
