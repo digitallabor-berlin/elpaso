@@ -390,16 +390,6 @@ This is a production-leaning proof of concept. These are the sharp edges:
   declare themselves as initial development, not for production. Expect API drift
   when bumping versions — even though both implement the 1.0 protocol specs.
 
-## Provenance
-
-El Paso Wallet is a hard fork of Eudipal Wallet 0.1.3, with the banking (FinTS/HBCI)
-and AI-chat feature layers removed. The design rationale for the fork is in
-`docs/superpowers/specs/2026-08-21-elpaso-credential-only-fork-design.md`, and the
-step-by-step strip is in
-`docs/superpowers/plans/2026-08-21-elpaso-credential-only-fork.md`. Those two
-documents intentionally still refer to the pre-fork package name, because they record
-the work as it was executed.
-
 ## License
 
 El Paso Wallet is licensed under the **Apache License, Version 2.0**. The full text is

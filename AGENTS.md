@@ -32,7 +32,7 @@ So when you change the code, ask what you just falsified:
 Two standing rules that fall out of this:
 
 - **The same fact stated in both files must be stated the same way.** The test-count
-  sentence, the Route membership, and the fork provenance are each duplicated by design —
+  sentence and the Route membership are each duplicated by design —
   README explains them to a reader, this file warns an editor about them. Update both or
   neither; a contradiction between the two is worse than either being stale alone.
 - **Prefer an invariant to a snapshot.** "Only these two tests fail" survives a growing
@@ -40,7 +40,7 @@ Two standing rules that fall out of this:
 
 **This rule stops at `docs/superpowers/`.** Everything under `docs/superpowers/plans/` and
 `docs/superpowers/specs/` is a dated record of work as it was executed — several of those
-files still cite the old 56-test baseline and the pre-fork package name, and that is
+files still cite the old 56-test baseline, and that is
 correct, because they describe a repository that existed at the time. Do not "refresh"
 them. If a decision recorded there no longer holds, supersede it with a new dated document
 rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describing the
@@ -208,7 +208,7 @@ Established primitives — extend these rather than bypassing them with one-off
 - **KDoc containing a literal `*/` closes the comment block early.** Write `values-xx`,
   not the glob form, inside docstrings.
 - **Room is at schema version 1 with `fallbackToDestructiveMigration()`** and no
-  migration chain, because the fork's new `applicationId` means there is no installed
+  migration chain, because the app's `applicationId` means there is no installed
   base. If you ship to real users, that stops being true — add migrations before the
   first release that changes the schema.
 - **`assets/` is invisible to lint.** `UnusedResources` analyses `res/` only, so an
@@ -231,13 +231,3 @@ Established primitives — extend these rather than bypassing them with one-off
   `mdoc/`, `session/`, `data/crypto/`, `data/trust/` and `domain/claims/` are the
   security-relevant core. Changes there want the 1.0 specs open and a real
   issuer/verifier to test against — not just a green unit-test run.
-
-## Provenance
-
-El Paso Wallet is a hard fork of Eudipal Wallet 0.1.3 with the banking (FinTS/HBCI)
-and AI-chat feature layers removed — 57% of the original codebase. Design rationale
-is in `docs/superpowers/specs/2026-08-21-elpaso-credential-only-fork-design.md`; the
-step-by-step strip is in
-`docs/superpowers/plans/2026-08-21-elpaso-credential-only-fork.md`. Both documents
-deliberately still use the pre-fork package name `com.eudipal.wallet`, because they
-record the work as it was executed; they are history, not current API.

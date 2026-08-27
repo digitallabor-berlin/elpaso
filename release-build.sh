@@ -17,7 +17,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-APK_OUT="app/release/eudipal-release.apk"
+APK_OUT="app/release/elpaso-release.apk"
 UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
 KEYSTORE="$HOME/dev/android_build.jks"
 APKSIGNER="$HOME/Library/Android/sdk/build-tools/36.1.0/apksigner"

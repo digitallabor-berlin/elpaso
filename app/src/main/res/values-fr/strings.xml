@@ -9,8 +9,6 @@
     <string name="home_fab_cd">Ajouter au portefeuille</string>
     <string name="home_settings_cd">Paramètres</string>
 
-    <!-- Navigation -->
-
     <!-- Ajout -->
     <string name="add_scan_title">Scanner l\'offre</string>
     <string name="add_scan_hint">Pointez la caméra vers le code QR de l\'émetteur</string>
@@ -96,8 +94,6 @@
     <string name="tx_data_invalid_body">Les informations de paiement requises sont absentes ou mal formées.</string>
     <string name="tx_data_dynamic_default_heading">Confirmer la transaction</string>
 
-    <!-- Onglet Activité (espace réservé) -->
-
     <!-- Scanner QR -->
     <string name="qr_permission_required">L\'autorisation d\'accès à la caméra est requise pour scanner les codes QR.</string>
 
@@ -141,52 +137,6 @@
     <string name="biometric_prompt_title">S\'authentifier</string>
     <string name="biometric_prompt_subtitle">Confirmez votre identité pour autoriser</string>
     <string name="biometric_prompt_negative">Annuler</string>
-
-    <!-- Banque -->
-
-
-
-
-
-
-
-
-    <!-- Détail de transaction -->
-
-    <!-- Chat IA -->
-
-    <!-- Carte de configuration du backend cloud -->
-
-    <!-- Puce d\'appel d\'outil (backend cloud uniquement) -->
-
-    <!-- Cartes enrichies (backend cloud uniquement) -->
-
-    <!-- Cartes enrichies du conseiller IA (analyzeFinances) -->
-
-
-
-
-
-    <!-- Paramètres IA -->
-
-    <!-- Noms d\'affichage des modèles IA — apparaissent dans le sélecteur Paramètres et la carte de configuration du chat. -->
-
-    <!-- Types de transaction — traductions naturelles en français des termes bancaires allemands.
-         L\'énumération de domaine sous-jacente reste neutre du point de vue de la langue. -->
-
-    <!-- Flux Envoyer de l\'argent -->
-    <!-- Envoyer de l\'argent : étape de vérification du bénéficiaire en cours de flux -->
-    <!-- Envoyer de l\'argent : badge de résultat de la vérification du bénéficiaire à l\'étape Terminé -->
-
-    <!-- Envoyer de l\'argent : sélecteur de bénéficiaire connu -->
-
-    <!-- SendMoney + puces de résumé de virement (drapeau instantané, ligne du compte source) -->
-
-    <!-- Chat IA : carte de candidats findRecipients -->
-
-    <!-- Chat IA : carte de montant agrégé -->
-
-    <!-- Aperçu de connexion bancaire (liste tous les comptes d\'une même connexion HBCI) -->
 
     <!-- Section À propos -->
     <string name="settings_about">À propos</string>

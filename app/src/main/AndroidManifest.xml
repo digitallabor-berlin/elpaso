@@ -32,17 +32,6 @@
         tools:replace="android:allowBackup,android:fullBackupContent,android:dataExtractionRules"
         tools:targetApi="34">
 
-        <!-- LiteRT-LM GPU delegate: declare the optional shared libs so the
-             OpenCL driver is resolvable from the app process on Android 7+.
-             `required="false"` means devices without OpenCL still install
-             the app; LiteRT-LM gracefully falls back to CPU there. -->
-        <uses-native-library
-            android:name="libvndksupport.so"
-            android:required="false" />
-        <uses-native-library
-            android:name="libOpenCL.so"
-            android:required="false" />
-
         <activity
             android:name=".MainActivity"
             android:exported="true"

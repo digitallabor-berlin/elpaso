@@ -14,4 +14,5 @@ captures/
 *.DS_Store
 app/release
 .kilo/
+.pi/
 

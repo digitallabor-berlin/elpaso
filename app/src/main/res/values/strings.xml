@@ -9,8 +9,6 @@
     <string name="home_fab_cd">Add to wallet</string>
     <string name="home_settings_cd">Settings</string>
 
-    <!-- Nav -->
-
     <!-- Add -->
     <string name="add_scan_title">Scan offer</string>
     <string name="add_scan_hint">Point the camera at the issuer\'s QR code</string>
@@ -96,8 +94,6 @@
     <string name="tx_data_invalid_body">Required payment information is missing or malformed.</string>
     <string name="tx_data_dynamic_default_heading">Authorize transaction</string>
 
-    <!-- Activity tab placeholder -->
-
     <!-- QR scanner -->
     <string name="qr_permission_required">Camera permission required to scan QR codes.</string>
 
@@ -141,52 +137,6 @@
     <string name="biometric_prompt_title">Authenticate</string>
     <string name="biometric_prompt_subtitle">Confirm your identity to authorize</string>
     <string name="biometric_prompt_negative">Cancel</string>
-
-    <!-- Banking -->
-
-
-
-
-
-
-
-
-    <!-- Transaction detail -->
-
-    <!-- AI chat -->
-
-    <!-- Cloud-backend setup card -->
-
-    <!-- Tool-call chip (cloud backend only) -->
-
-    <!-- Rich cards (cloud backend only) -->
-
-    <!-- AI advisor rich cards (analyzeFinances scopes) -->
-
-
-
-
-
-    <!-- AI settings -->
-
-    <!-- AI model display names — surfaced in the Settings picker + chat setup card. -->
-
-    <!-- Transaction kinds — natural-English translations of the German banking terms.
-         The underlying domain enum stays language-neutral. -->
-
-    <!-- Send Money flow -->
-    <!-- Send Money: Verification of Payee mid-flight review step -->
-    <!-- Send Money: Verification of Payee outcome badge on the Done step -->
-
-    <!-- Send Money: known-recipient picker -->
-
-    <!-- SendMoney + transfer summary chips (instant flag, source-account line) -->
-
-    <!-- AI chat: findRecipients candidates card -->
-
-    <!-- AI chat: aggregate amount card -->
-
-    <!-- Banking connection overview (lists all accounts under one HBCI login) -->
 
     <!-- About section -->
     <string name="settings_about">About</string>
