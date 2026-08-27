@@ -5,6 +5,47 @@ doc — what the app is, how to build it, how to drive the flows. Read that firs
 orientation. This file is about *not breaking things*: invariants, gotchas, and where
 to extend.
 
+## Keeping the docs current
+
+**`AGENTS.md` and `README.md` are part of the codebase. A change that invalidates
+something either file asserts is not finished until that assertion is corrected in the
+same commit.** Both files trade in specifics — exact counts, version pins, file paths,
+named invariants — and that is what makes them worth reading. It is also what makes them
+rot silently: nothing compiles them, no test asserts them, and a stale specific is worse
+than no specific because it is quietly believed.
+
+So when you change the code, ask what you just falsified:
+
+| You changed | Check |
+| --- | --- |
+| Added or removed tests | The test-count claim in **both** files (Build quirks here, §Run unit tests there) |
+| A dependency version | Prerequisites table and "Key library versions" in README; any version pin asserted here |
+| Added/removed/renamed a source directory | README §Project layout tree, and the file count above it |
+| A `Route` member | Route lists in README §Architecture quick reference and Cross-cutting architecture here |
+| A Settings screen entry | README §Configuration settings table |
+| A deep-link scheme or protocol identifier | README §Deep-link schemes, Credential protocols here |
+| A supported client-id prefix / verifier trust rule | README §Supported client identifier prefixes |
+| Something a "Known limitation" describes | README §Known limitations — delete the entry if you fixed it |
+| A licence or a vendored third-party component | README §License |
+| A build step, gradle task, or matcher/wasm invariant | Build quirks here, README §Build |
+
+Two standing rules that fall out of this:
+
+- **The same fact stated in both files must be stated the same way.** The test-count
+  sentence, the Route membership, and the fork provenance are each duplicated by design —
+  README explains them to a reader, this file warns an editor about them. Update both or
+  neither; a contradiction between the two is worse than either being stale alone.
+- **Prefer an invariant to a snapshot.** "Only these two tests fail" survives a growing
+  suite; "56 tests" does not. Where you must write a number, write what makes it move.
+
+**This rule stops at `docs/superpowers/`.** Everything under `docs/superpowers/plans/` and
+`docs/superpowers/specs/` is a dated record of work as it was executed — several of those
+files still cite the old 56-test baseline and the pre-fork package name, and that is
+correct, because they describe a repository that existed at the time. Do not "refresh"
+them. If a decision recorded there no longer holds, supersede it with a new dated document
+rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describing the
+*current* system are subject to the currency rule above.
+
 ## Build quirks
 
 - **There is no `./gradlew` wrapper checked in.** Use the system `gradle` directly
@@ -13,9 +54,10 @@ to extend.
 - **Two permanent test failures.** `TransactionDataTest.hashEntry produces a 43-char
   base64url SHA-256` and `TransactionDataTest.parse PaymentData picks up payee and
   amount fields` throw `NullPointerException` on the JVM because they call
-  `android.util.Base64`. **A green run is 56 tests, 2 failed, with those two being
-  the only failures.** Do not "fix" them by mocking unless you are genuinely
-  changing `TransactionData`.
+  `android.util.Base64`. **The invariant is that those two are the *only* failures** —
+  as of writing that reads `206 tests completed, 2 failed`, but the total climbs
+  whenever tests are added, so judge a run by the names of the failures, not the count.
+  Do not "fix" them by mocking unless you are genuinely changing `TransactionData`.
 - **JVM unit-test stubs**: `testOptions.unitTests.isReturnDefaultValues = true` means
   anything touching `android.util.*` returns null/0/false in tests. Push such logic
   into pure-Kotlin helpers and unit-test those instead.

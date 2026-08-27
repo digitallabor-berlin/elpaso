@@ -180,8 +180,12 @@ class PresentationClient(
         /**
          * Calling app origin in the form `android:apk-key-hash:<sha256>` for native apps,
          * or the web origin (e.g. `https://verifier.example.com`) when forwarded from a
-         * privileged browser. Per OpenID4VP 1.0 §B.3.4, the SD-JWT KB-JWT `aud` MUST be
-         * this value prefixed with `origin:`.
+         * privileged browser. Per OpenID4VP 1.0 Appendix A.4, the SD-JWT KB-JWT `aud` MUST
+         * be this value prefixed with `origin:`.
+         *
+         * Nullable only because the platform API is — a DC API request that reaches
+         * resolution without an Origin is rejected outright (see [dcApiVerifierOrigin]),
+         * so this is non-null for any [State.Resolved] that exists.
          */
         val callingAppOrigin: String?,
         /**
@@ -372,10 +376,10 @@ class PresentationClient(
      * a [State.Resolved] narrowed to the user-selected credential.
      *
      * [callingAppOrigin] is the calling app's identity expressed per OpenID4VP DC API
-     * profile (`android:apk-key-hash:…` for native callers, `web-origin:https://…` when
-     * forwarded from a privileged browser). [selectedCredentialId] is the entry id the
-     * user picked in the system selector; the registry already restricted matches to
-     * disclosable claims for that one credential.
+     * profile (`android:apk-key-hash:…` for native callers, the bare web origin
+     * `https://…` when forwarded from a privileged browser). [selectedCredentialId] is
+     * the entry id the user picked in the system selector; the registry already restricted
+     * matches to disclosable claims for that one credential.
      */
     suspend fun resolveDcApi(
         rawRequestJson: String,
@@ -505,13 +509,13 @@ class PresentationClient(
             // here if the verifier asks for it but didn't supply a usable encryption key.
             val dcApiEncryption = parseDcApiEncryption(request, responseMode)
 
-            // OpenID4VP 2.0 §B.3.4 (DC API): KB-JWT `aud` is the verifier's Origin prefixed
-            // with `origin:`. The Origin is implied by the client_id prefix — for an
-            // `x509_san_dns:<host>` verifier identity, the Origin is `https://<host>`. We rely
-            // on the verifier's own client_id rather than `CallingAppInfo.getOrigin()` because
-            // the latter only works when the calling browser is in our privileged-apps list,
-            // whereas the client_id is always present and self-describing in a signed request.
-            val verifierOrigin = deriveVerifierOrigin(clientId, callingAppOrigin)
+            // OpenID4VP 1.0 Appendix A.4 (DC API): the response audience — the KB-JWT `aud`
+            // — MUST be the Origin the request arrived from, prefixed with `origin:`. The
+            // spec states this holds "even for signed requests", and that "the Client
+            // Identifier is not used as the audience for the response". The Origin is
+            // therefore never derived from client_id; it is only ever what the platform
+            // attested (see DcPresentationActivity.computeCallingAppOrigin).
+            val verifierOrigin = dcApiVerifierOrigin(clientId, callingAppOrigin)
             val audience = "origin:$verifierOrigin"
             Log.i(
                 LOG_TAG,
@@ -638,55 +642,48 @@ class PresentationClient(
         }
 
     /**
-     * Derive the verifier's Origin from the OpenID4VP `client_id` per OpenID4VP 2.0
-     * §B.3.4: the KB-JWT `aud` must be `origin:<verifier-origin>`. For the supported
-     * client_id prefixes the origin is implicit:
+     * The Origin a DC API response is bound to, per OpenID4VP 1.0 Appendix A.4:
      *
-     * - `x509_san_dns:<host>` → `https://<host>` (host MUST also appear as a dnsName SAN
-     *   in the leaf cert of the signed request's x5c chain; today the WASM matcher / our
-     *   trust list resolution covers that)
-     * - `web-origin:<origin>` → the origin verbatim
-     * - `redirect_uri:<uri>` → the scheme+authority of the URI
+     * > The audience for the response (for example, the `aud` value in a Key Binding JWT)
+     * > MUST be the Origin, prefixed with `origin:`. This is the case even for signed
+     * > requests. Therefore, when using OpenID4VP over the DC API, the Client Identifier
+     * > is not used as the audience for the response.
      *
-     * If nothing matches we fall back to whatever the platform handed us via
-     * `CallingAppInfo` — better than nothing for non-standard verifier IDs, but a verifier
-     * checking aud against its expected Origin will likely reject. Logged so it's visible.
+     * §5.9.3 says the same from the other side: `origin:` is a *reserved* Client Identifier
+     * Prefix which a Wallet "MUST NOT accept in requests" — it exists solely to carry this
+     * audience value.
+     *
+     * So this function deliberately does not inspect [clientId]; it is taken only to make
+     * the failure message identify the request. An earlier revision derived the Origin from
+     * the client_id prefix (`x509_san_dns:<host>` → `https://<host>`), which is wrong twice
+     * over: it substitutes a certificate's dNSName for the actual Origin, and it cannot work
+     * at all for `x509_hash:`, whose identifier is a base64url SHA-256 of the DER-encoded
+     * leaf certificate with no host in it to recover.
+     *
+     * The non-DC-API paths are unaffected — there `aud` *is* the prefixed Client Identifier
+     * (see [kbJwtAudience]), which is the same spec sentence's main clause.
+     *
+     * Note this is only the audience binding. It is *not* the replay check: for signed DC
+     * API requests Appendix A.2 also requires the Wallet to match this Origin against the
+     * request's `expected_origins` and reject on mismatch, which is not implemented yet.
+     *
+     * @throws IllegalStateException when the platform supplied no Origin. Without one there
+     *   is no compliant `aud` to construct, and answering with a guessed audience would be
+     *   worse than not answering: unverifiable at best, and at worst a presentation bound to
+     *   a party that never asked for it.
      */
-    private fun deriveVerifierOrigin(
+    private fun dcApiVerifierOrigin(
         clientId: String,
         callingAppOrigin: String?,
-    ): String {
-        val prefixed =
-            clientId.indexOf(':').takeIf { it > 0 }?.let { idx ->
-                clientId.substring(0, idx) to clientId.substring(idx + 1)
-            }
-        return when (prefixed?.first) {
-            "x509_san_dns" -> {
-                "https://${prefixed.second}"
-            }
-
-            "web-origin" -> {
-                prefixed.second
-            }
-
-            "redirect_uri" -> {
-                Uri.parse(prefixed.second).let { uri ->
-                    val scheme = uri.scheme ?: "https"
-                    val authority = uri.authority ?: prefixed.second
-                    "$scheme://$authority"
-                }
-            }
-
-            else -> {
-                Log.w(
-                    LOG_TAG,
-                    "deriveVerifierOrigin: no recognised client_id prefix in '$clientId' — " +
-                        "falling back to callingAppOrigin=$callingAppOrigin",
-                )
-                callingAppOrigin ?: clientId
-            }
-        }
-    }
+    ): String =
+        callingAppOrigin
+            ?: error(
+                "DC API request from client_id='$clientId' carries no caller Origin — " +
+                    "CallingAppInfo yielded neither a privileged web origin nor a signing " +
+                    "certificate to derive `android:apk-key-hash:` from. OpenID4VP 1.0 " +
+                    "Appendix A.4 requires aud='origin:<Origin>', so this request cannot be " +
+                    "answered.",
+            )
 
     private fun decodeCompactJws(jwt: String): Pair<JsonObject, List<X509Certificate>> {
         val parts = jwt.split('.')
@@ -900,7 +897,7 @@ class PresentationClient(
      * have no prefix and pass through verbatim.
      *
      * Not used for the DC API path — there the spec's exception applies and the audience is
-     * `origin:<verifier-origin>` (see [deriveVerifierOrigin]).
+     * `origin:<Origin>` (see [dcApiVerifierOrigin]).
      */
     private fun kbJwtAudience(client: Client): String = client.id.clientId
 

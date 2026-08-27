@@ -139,9 +139,10 @@ gradle :app:testDebugUnitTest
 43-char base64url SHA-256` and `parse PaymentData picks up payee and amount fields`.
 Both throw `NullPointerException` because they call `android.util.Base64`, which the
 JVM unit-test stub returns `null` from (`testOptions.unitTests.isReturnDefaultValues
-= true`). This is expected. A green run is **56 tests, 2 failed**, with those two
-being the only failures. Do not "fix" them by mocking unless you are actually
-changing `TransactionData`.
+= true`). This is expected. **A green run is those two failures and nothing else** — at
+the time of writing that prints `206 tests completed, 2 failed`, but the total grows as
+tests are added, so check the failure names rather than the count. Do not "fix" them by
+mocking unless you are actually changing `TransactionData`.
 
 Run a single class:
 
@@ -209,11 +210,23 @@ These are protocol identifiers and are deliberately not branded:
 | `openid-credential-offer://`, `haip://` | Credential offer (issuance) |
 | `openid4vp://`, `eudi-openid4vp://` | Presentation request |
 
-### Supported verifier ID schemes — `PresentationClient`
+### Supported client identifier prefixes — `PresentationClient`
 
-Currently trusts `X509SanDns` and `RedirectUri`. Add
+`buildConfig` registers three of the OpenID4VP 1.0 Client Identifier Prefixes:
+`X509SanDns`, `X509Hash`, and `RedirectUri`. Add
 `SupportedClientIdPrefix.Preregistered(...)` entries if you need pre-registered
-verifier trust.
+verifier trust; `openid_federation`, `decentralized_identifier` and
+`verifier_attestation` are not wired.
+
+The two X.509 prefixes are currently configured with a permissive chain-trust callback
+(`trustAllForNow`) — the real gate is the trust-list check at consent time, not this
+callback. See Known limitations.
+
+Note that on the **Digital Credentials API** path the client identifier is deliberately
+*not* used to identify the verifier's Origin. Per OpenID4VP 1.0 Appendix A.4, the response
+audience is the platform-attested Origin prefixed with `origin:` — "even for signed
+requests" — so the wallet binds to what Android reports the caller to be, never to a host
+parsed out of `client_id`.
 
 ## End-to-end testing
 
@@ -269,7 +282,7 @@ Same flow; pick the mDL credential on the consent screen.
 
 ## Project layout
 
-Single `:app` module, 82 Kotlin source files:
+Single `:app` module, 96 Kotlin source files:
 
 ```text
 app/src/main/java/dev/digitallabor/elpaso/wallet/
@@ -342,6 +355,12 @@ This is a production-leaning proof of concept. These are the sharp edges:
   exchange writes a row (verifier, fields disclosed, outcome, timestamp) and no
   screen reads it. This is deliberate — the history UI was cut rather than shipped
   half-designed. Don't remove the recording; don't add a screen without designing it.
+- **`expected_origins` is not checked.** OpenID4VP 1.0 Appendix A.2 makes the parameter
+  REQUIRED on signed Digital Credentials API requests and obliges the wallet to compare it
+  against the actual caller Origin, rejecting on mismatch — that is the replay defence for
+  the DC API path. The wallet parses no such parameter today. The response is still bound
+  to the platform-attested Origin via the `origin:` audience, so a replayed request cannot
+  silently retarget the presentation, but the request-side check is absent.
 - **Deferred issuance is not implemented.** `SubmissionOutcome.Deferred` raises an
   error. Supporting it means persisting the deferred-issuance context and polling,
   most likely via `WorkManager`.
@@ -354,6 +373,14 @@ This is a production-leaning proof of concept. These are the sharp edges:
 - **Trust lists are read-only.** They load from bundled JSON assets at startup.
   There is no runtime addition and no Trusted-Issuers-Registry fetch — edit the
   assets and rebuild.
+- **X.509 chain validation is delegated, not performed.** `PresentationClient` hands the
+  OpenID4VP library an `X509CertificateTrust` (`trustAllForNow`) that accepts any
+  non-empty chain, so the library never rejects a verifier on PKI grounds. That is
+  deliberate — it lets the wallet surface the verifier to the user instead of failing
+  opaquely — and the real gate is the trust-list lookup shown on the consent screen. But
+  it means the *only* thing standing between an untrusted verifier and a presentation is
+  that consent gate, which developer mode (on by default, see above) disables. Ship
+  neither default as-is.
 - **Developer mode defaults to on**, bypassing the trust-list gate. See
   Configuration.
 - **The HTTPS app-link host is a placeholder.** `wallet.example.com` needs replacing
@@ -375,5 +402,46 @@ the work as it was executed.
 
 ## License
 
-No license header is configured yet. Dependencies remain under their own licenses —
-most relevantly the EUDI libraries (EUPL-1.2). Configure a license before publishing.
+El Paso Wallet is licensed under the **Apache License, Version 2.0**. The full text is
+in [`LICENSE`](LICENSE); you may obtain a copy at
+<https://www.apache.org/licenses/LICENSE-2.0>.
+
+```text
+Copyright 2026 digitallabor.berlin
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+Source files carry no per-file licence header; the root `LICENSE` governs the repository.
+
+### Third-party components
+
+Dependencies keep their own licences. The ones that ship *inside* this repository rather
+than being resolved from a package registry:
+
+| Component | Where | Licence |
+| --- | --- | --- |
+| CMWallet matcher C sources | `matcher/upstream/` (vendored), compiled to `app/src/main/assets/openid4vp1_0.wasm` | Apache-2.0 |
+| CMWallet `provision_hardcoded.wasm` | `app/src/main/assets/dc_issuance_matcher.wasm` (vendored binary) | Apache-2.0 |
+| cJSON | `matcher/upstream/cJSON/` | MIT |
+
+The vendored CMWallet sources are **modified** — our deltas are the patch files in
+`matcher/patches/`, applied at build time and recorded in `matcher/PROVENANCE`. Apache-2.0
+§4(b) requires modified files to carry prominent notice of the change; keeping the deltas
+as discrete patches rather than editing `matcher/upstream/` in place is how that notice is
+satisfied, which is a second reason never to edit the vendored tree directly.
+
+Resolved dependencies of note: the EUDI libraries (`eudi-lib-jvm-openid4vci-kt`,
+`eudi-lib-jvm-openid4vp-kt`) are Apache-2.0, © European Commission. Multipaz, Nimbus
+JOSE+JWT, Ktor, Coil, and the AndroidX/Compose stack are Apache-2.0; BouncyCastle is under
+the MIT-style Bouncy Castle licence.

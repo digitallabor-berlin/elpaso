@@ -172,7 +172,12 @@ class DcPresentationActivity : FragmentActivity() {
      *   directly from the signing cert.
      *
      * Either form gets prefixed with `origin:` in `PresentationClient.resolveDcApi` to
-     * produce the KB-JWT `aud` value required by OpenID4VP 1.0 §B.3.4.
+     * produce the KB-JWT `aud` value required by OpenID4VP 1.0 Appendix A.4 — which is the
+     * Origin itself, never anything derived from the request's `client_id`.
+     *
+     * Returning null therefore fails the request rather than degrading it: resolution has
+     * no compliant audience to build. In practice both branches have to fail for that to
+     * happen, since a caller with no usable signing certificate is already anomalous.
      */
     private fun computeCallingAppOrigin(request: androidx.credentials.provider.ProviderGetCredentialRequest): String? {
         val privilegedOrigin =
