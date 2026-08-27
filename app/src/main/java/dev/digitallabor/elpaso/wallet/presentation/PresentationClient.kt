@@ -19,6 +19,7 @@ import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
 import dev.digitallabor.elpaso.wallet.data.store.TransactionRepository
 import dev.digitallabor.elpaso.wallet.data.trust.TrustListService
 import dev.digitallabor.elpaso.wallet.data.trust.TrustedVerifier
+import dev.digitallabor.elpaso.wallet.dcapi.DcApiSelection
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
 import dev.digitallabor.elpaso.wallet.presentation.builder.MdocDeviceResponseBuilder
@@ -379,13 +380,14 @@ class PresentationClient(
     suspend fun resolveDcApi(
         rawRequestJson: String,
         callingAppOrigin: String?,
-        selectedCredentialId: String?,
+        selection: DcApiSelection?,
     ): Result<State.Resolved> =
         runCatching {
             state.value = State.Idle
             Log.i(
                 LOG_TAG,
-                "resolveDcApi origin=$callingAppOrigin selected=$selectedCredentialId " +
+                "resolveDcApi origin=$callingAppOrigin selected_set=${selection?.setId} " +
+                    "selected_ids=${selection?.credentialIds} pins=${selection?.assignmentPins} " +
                     "payload_len=${rawRequestJson.length}",
             )
             val envelope = parseDcApiEnvelope(Json.parseToJsonElement(rawRequestJson).jsonObject)
@@ -416,17 +418,39 @@ class PresentationClient(
             val dcql = dcApiJson.decodeFromString(DCQL.serializer(), dcqlJson.toString())
 
             val allCredentials = repository.observeAll().first()
+            // The user already chose in the system selector, so narrow to exactly what they
+            // picked. This MUST be set-shaped: a `credential_sets` request is satisfied by
+            // several credentials at once, and filtering to a single id would starve one of
+            // the queries and trip the §6.4.2 fail-closed guard below.
+            val selectedIds = selection?.credentialIds.orEmpty()
             val eligibleCredentials =
-                if (selectedCredentialId != null) {
-                    allCredentials.filter { it.id == selectedCredentialId }
+                if (selectedIds.isNotEmpty()) {
+                    allCredentials.filter { it.id in selectedIds }
                 } else {
                     allCredentials
                 }
-            val matches = matcher.match(dcql, eligibleCredentials)
+            val rawMatches = matcher.match(dcql, eligibleCredentials)
+            // Honour the exact credential-to-query assignment the matcher showed the user.
+            // A pin only removes *alternatives* for a query the matcher spoke about, and
+            // only once we've confirmed the pinned pair actually matched — so pinning can
+            // never leave a query with nothing and turn a redundant tap into a hard failure.
+            val effectivePins =
+                selection
+                    ?.assignmentPins
+                    .orEmpty()
+                    .filter { (credentialId, queryId) ->
+                        rawMatches.any { it.credentialId == credentialId && it.queryId == queryId }
+                    }.toSet()
+            val pinnedQueryIds = effectivePins.map { it.second }.toSet()
+            val matches =
+                rawMatches.filter { m ->
+                    m.queryId !in pinnedQueryIds || (m.credentialId to m.queryId) in effectivePins
+                }
             val presentationCandidates = candidateResolver.resolve(dcql, matches)
             Log.i(
                 LOG_TAG,
-                "resolveDcApi eligible=${eligibleCredentials.size} matches=${matches.size} " +
+                "resolveDcApi eligible=${eligibleCredentials.size} raw_matches=${rawMatches.size} " +
+                    "pins_applied=${effectivePins.size} matches=${matches.size} " +
                     "candidates=${presentationCandidates.size} " +
                     "match_ids=${matches.map { it.credentialId }} client_id=$clientId nonce_len=${nonce.length}",
             )

@@ -1,0 +1,65 @@
+{
+  "nextId": 6,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Add failing test for DC API entry-set selection parser",
+      "description": "Write a JVM unit test for a pure parser that maps androidx SelectedCredentialSet data (credentialId + matcher metadata JSON containing dcql_cred_id) into a wallet-side selection model. Must be pure Kotlin (no android.util.*) so it runs on the JVM. Test must fail before the parser exists.",
+      "status": "completed",
+      "activeForm": "Writing failing selection-parser test",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787825336537,
+      "updatedAt": 1787825496280
+    },
+    {
+      "id": "2",
+      "subject": "Implement DcApiSelection pure parser",
+      "description": "Create dcapi/DcApiSelection.kt: pure-Kotlin model + parser turning the matcher's per-credential metadata JSON (dcql_cred_id, dcql_credential_set_index, dcql_option_index) plus credentialId into a list of selected (credentialId, dcqlQueryId) pairs. No Android types.",
+      "status": "completed",
+      "activeForm": "Implementing DcApiSelection parser",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787825336540,
+      "updatedAt": 1787825558609
+    },
+    {
+      "id": "3",
+      "subject": "Read selectedCredentialSet in DcPresentationActivity",
+      "description": "Read getRequest.selectedCredentialSet (androidx.credentials.registry.provider) and fall back to selectedEntryId. Convert via DcApiSelection into the route's selection list. Log the resolved selection so the fix is verifiable in logcat.",
+      "status": "completed",
+      "activeForm": "Wiring selectedCredentialSet in the activity",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787825336541,
+      "updatedAt": 1787825655177
+    },
+    {
+      "id": "4",
+      "subject": "Make resolveDcApi credential filter set-aware",
+      "description": "Replace the single-id filter in PresentationClient.resolveDcApi with a set-aware filter over all selected credential ids, so multi-credential credential_sets requests survive instead of tripping the §6.4.2 fail-closed guard. Route.Present carries a list instead of a single id; update WalletApp and PresentScanScreen call sites.",
+      "status": "completed",
+      "activeForm": "Making the resolveDcApi filter set-aware",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787825336543,
+      "updatedAt": 1787825606701
+    },
+    {
+      "id": "5",
+      "subject": "Verify on device: no second consent in DC API flow",
+      "description": "Build, install on Pixel 51221FDAS00096, capture logcat, have the user reproduce. Confirm selected set is non-null, candidates=1, canAutoAuthorize true, no consent card. Also confirm full unit-test suite is at the known-good baseline (56 tests, 2 permanent TransactionDataTest failures).",
+      "status": "completed",
+      "activeForm": "Verifying the fix on device",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1787825336545,
+      "updatedAt": 1787825928155
+    }
+  ]
+}

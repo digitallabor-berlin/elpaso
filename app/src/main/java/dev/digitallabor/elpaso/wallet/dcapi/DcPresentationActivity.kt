@@ -13,6 +13,7 @@ import androidx.credentials.GetDigitalCredentialOption
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
+import androidx.credentials.registry.provider.selectedCredentialSet
 import androidx.credentials.registry.provider.selectedEntryId
 import androidx.fragment.app.FragmentActivity
 import dev.digitallabor.elpaso.wallet.ui.WalletAppRoot
@@ -29,15 +30,15 @@ import java.security.MessageDigest
  */
 @OptIn(ExperimentalDigitalCredentialApi::class)
 class DcPresentationActivity : FragmentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Log.i(LOG_TAG, "onCreate action=${intent?.action} has_extras=${intent?.extras != null}")
 
-        val getRequest = runCatching {
-            PendingIntentHandler.retrieveProviderGetCredentialRequest(intent)
-        }.getOrNull()
+        val getRequest =
+            runCatching {
+                PendingIntentHandler.retrieveProviderGetCredentialRequest(intent)
+            }.getOrNull()
 
         if (getRequest == null) {
             Log.w(LOG_TAG, "No ProviderGetCredentialRequest in intent; aborting")
@@ -45,21 +46,23 @@ class DcPresentationActivity : FragmentActivity() {
             return
         }
 
-        val rawJson = getRequest.credentialOptions
-            .filterIsInstance<GetDigitalCredentialOption>()
-            .firstOrNull()
-            ?.requestJson
-            .orEmpty()
-        val selectedId = getRequest.selectedEntryId
+        val rawJson =
+            getRequest.credentialOptions
+                .filterIsInstance<GetDigitalCredentialOption>()
+                .firstOrNull()
+                ?.requestJson
+                .orEmpty()
+        val selection = resolveSelection(getRequest)
         val callingAppOrigin = computeCallingAppOrigin(getRequest)
         // Pre-auth type tells us whether Credential Manager's prompt was biometric vs
         // device-credential. With the device key configured as time-bound BIOMETRIC_STRONG
         // (see KeyManager.AUTH_VALIDITY_SECONDS), a successful biometric pre-auth lets
         // BiometricAuthorizer skip its own prompt. A device-credential pre-auth doesn't
         // unlock the key, so a second prompt is unavoidable for those users.
-        val preAuthType = runCatching {
-            getRequest.biometricPromptResult?.authenticationResult?.authenticationType
-        }.getOrNull()
+        val preAuthType =
+            runCatching {
+                getRequest.biometricPromptResult?.authenticationResult?.authenticationType
+            }.getOrNull()
         // `BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC == 2`. Anything else
         // (null / TYPE_DEVICE_CREDENTIAL = 1) means we still need our own biometric
         // prompt to provide the user-gesture-with-consent the platform expects before
@@ -69,7 +72,10 @@ class DcPresentationActivity : FragmentActivity() {
             LOG_TAG,
             "request received options=${getRequest.credentialOptions.size} " +
                 "digital_options=${getRequest.credentialOptions.count { it is GetDigitalCredentialOption }} " +
-                "request_json_len=${rawJson.length} selected_entry_id=$selectedId " +
+                "request_json_len=${rawJson.length} " +
+                "selected_set_id=${selection?.setId} " +
+                "selected_credential_ids=${selection?.credentialIds} " +
+                "selected_pins=${selection?.assignmentPins} " +
                 "calling_package=${getRequest.callingAppInfo.packageName} origin=$callingAppOrigin " +
                 "pre_auth_type=$preAuthType system_pre_auth_biometric=$systemPreAuthBiometric",
         )
@@ -77,12 +83,13 @@ class DcPresentationActivity : FragmentActivity() {
         setContent {
             ElPasoTheme {
                 WalletAppRoot(
-                    startRoute = Route.Present(
-                        rawRequestJson = rawJson,
-                        callingPackage = callingAppOrigin,
-                        preselectedCredentialId = selectedId,
-                        systemPreAuthBiometric = systemPreAuthBiometric,
-                    ),
+                    startRoute =
+                        Route.Present(
+                            rawRequestJson = rawJson,
+                            callingPackage = callingAppOrigin,
+                            dcApiSelection = selection,
+                            systemPreAuthBiometric = systemPreAuthBiometric,
+                        ),
                     onDcApiResult = { responseJson -> finishWithSuccess(responseJson) },
                     onDcApiCancel = { finishWithCancellation() },
                     onDcApiError = { message -> finishWithException(message) },
@@ -119,6 +126,32 @@ class DcPresentationActivity : FragmentActivity() {
     }
 
     /**
+     * Read the user's selection out of the platform's response.
+     *
+     * Our matcher reports every match through `AddEntrySet` / `AddEntryToSet`
+     * (`matcher/upstream/openid4vp1_0.c:135`), which the host takes for any
+     * `wasm_version > 1` — i.e. always, in practice. Credential Manager answers that with
+     * the `CREDENTIAL_SET_*` extras behind [selectedCredentialSet], and leaves the
+     * single-entry `CREDENTIAL_ID` extra behind [selectedEntryId] unset. Reading only the
+     * latter therefore returned null on every request, discarded the user's choice, and
+     * made the wallet re-ask for consent the platform had already collected.
+     *
+     * [selectedEntryId] is kept as a fallback for the legacy `AddStringIdEntry` path, so a
+     * matcher rebuilt against an older host still works.
+     */
+    private fun resolveSelection(request: androidx.credentials.provider.ProviderGetCredentialRequest): DcApiSelection? {
+        val set = runCatching { request.selectedCredentialSet }.getOrNull()
+        if (set != null) {
+            return DcApiSelection.fromEntrySet(
+                setId = set.credentialSetId,
+                credentials = set.credentials.map { it.credentialId to it.metadata },
+            )
+        }
+        Log.w(LOG_TAG, "no selectedCredentialSet in request; falling back to selectedEntryId")
+        return DcApiSelection.ofSingleEntry(runCatching { request.selectedEntryId }.getOrNull())
+    }
+
+    /**
      * Resolve the caller's origin per the OpenID4VP DC API profile.
      *
      * - Privileged browser callers (Chrome, etc.) are allowed to claim the web origin of
@@ -131,17 +164,17 @@ class DcPresentationActivity : FragmentActivity() {
      * Either form gets prefixed with `origin:` in `PresentationClient.resolveDcApi` to
      * produce the KB-JWT `aud` value required by OpenID4VP 1.0 §B.3.4.
      */
-    private fun computeCallingAppOrigin(
-        request: androidx.credentials.provider.ProviderGetCredentialRequest,
-    ): String? {
-        val privilegedOrigin = runCatching {
-            request.callingAppInfo.getOrigin(PRIVILEGED_APPS_JSON)
-        }.getOrNull()
+    private fun computeCallingAppOrigin(request: androidx.credentials.provider.ProviderGetCredentialRequest): String? {
+        val privilegedOrigin =
+            runCatching {
+                request.callingAppInfo.getOrigin(PRIVILEGED_APPS_JSON)
+            }.getOrNull()
         if (!privilegedOrigin.isNullOrEmpty()) return privilegedOrigin
         return runCatching {
             val signingInfo = request.callingAppInfo.signingInfoCompat
-            val cert = signingInfo.signingCertificateHistory.firstOrNull()?.toByteArray()
-                ?: return@runCatching null
+            val cert =
+                signingInfo.signingCertificateHistory.firstOrNull()?.toByteArray()
+                    ?: return@runCatching null
             val sha = MessageDigest.getInstance("SHA-256").digest(cert)
             val b64 = Base64.encodeToString(sha, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
             "android:apk-key-hash:$b64"

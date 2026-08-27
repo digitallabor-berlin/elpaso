@@ -1,6 +1,7 @@
 package dev.digitallabor.elpaso.wallet.ui.nav
 
 import android.net.Uri
+import dev.digitallabor.elpaso.wallet.dcapi.DcApiSelection
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.Channel.Factory.BUFFERED
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -31,7 +32,18 @@ sealed interface Route {
     data class Present(
         val rawRequestJson: String,
         val callingPackage: String?,
-        val preselectedCredentialId: String?,
+        /**
+         * Credential to pre-highlight, set by the fling-up gesture on a pass. Only
+         * meaningful on the deep-link path; the DC API path uses [dcApiSelection].
+         */
+        val preselectedCredentialId: String? = null,
+        /**
+         * What the user actually chose in the system DC API selector, when this route was
+         * opened by [dev.digitallabor.elpaso.wallet.dcapi.DcPresentationActivity]. Non-null
+         * means the choice is already made and the wallet must not ask a second time — see
+         * [DcApiSelection] for why this is a set rather than a single id.
+         */
+        val dcApiSelection: DcApiSelection? = null,
         /**
          * True when Credential Manager / Play Services performed a
          * `BIOMETRIC_STRONG`/`BIOMETRIC` authentication for this DC API request before

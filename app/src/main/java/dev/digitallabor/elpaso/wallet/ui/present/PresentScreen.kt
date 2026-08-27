@@ -72,6 +72,7 @@ import dev.digitallabor.elpaso.wallet.data.settings.LocaleApplier
 import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
+import dev.digitallabor.elpaso.wallet.dcapi.DcApiSelection
 import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
 import dev.digitallabor.elpaso.wallet.domain.claims.CredentialClaims
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
@@ -169,7 +170,11 @@ fun PresentScreen(
             client.resolveDcApi(
                 rawRequestJson = route.rawRequestJson,
                 callingAppOrigin = route.callingPackage,
-                selectedCredentialId = route.preselectedCredentialId,
+                // The DC API selector's own choice wins. The single-id fallback covers the
+                // legacy `AddStringIdEntry` matcher path, which carries no set metadata.
+                selection =
+                    route.dcApiSelection
+                        ?: DcApiSelection.ofSingleEntry(route.preselectedCredentialId),
             )
         }
     }
