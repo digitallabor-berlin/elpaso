@@ -30,5 +30,5 @@ if gh release view "$VERSION" >/dev/null 2>&1; then
   gh release upload "$VERSION" "$APK_OUT" --clobber
 else
   echo "Creating release $VERSION."
-  gh release create "$VERSION" "$APK_OUT"
+  gh release create "$VERSION" "$APK_OUT" --title "$VERSION" --notes ""
 fi
