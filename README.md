@@ -1,4 +1,8 @@
-# El Paso Wallet — a credential-only EUDI wallet for Android
+<p align="center">
+  <img src="docs/assets/elpaso_logo.jpeg" />
+</p>
+
+# El Paso Wallet
 
 El Paso Wallet stores digital identity credentials on your phone and shows them to
 verifiers who ask for them. That is the whole app. It receives credentials over
