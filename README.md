@@ -365,6 +365,14 @@ This is a production-leaning proof of concept. These are the sharp edges:
   the DC API path. The wallet parses no such parameter today. The response is still bound
   to the platform-attested Origin via the `origin:` audience, so a replayed request cannot
   silently retarget the presentation, but the request-side check is absent.
+- **Non-payment SCA `transaction_data` gets no dedicated system-picker rendering.** The
+  Digital Credentials API's payment entry carries a merchant and an amount, so a
+  non-payment PaSO type — a login SCA, say — is offered as an ordinary credential entry
+  instead: visible and selectable, but without the SCA framing the in-app consent screen
+  gives it. The matcher degrades this way deliberately. Routing such a request through the
+  payment entry produced an entry with no merchant, no amount, no title and no claims,
+  which the picker drops — so the wallet vanished from the picker entirely while the
+  QR/deeplink path kept working.
 - **Deferred issuance is not implemented.** `SubmissionOutcome.Deferred` raises an
   error. Supporting it means persisting the deferred-issuance context and polling,
   most likely via `WorkManager`.

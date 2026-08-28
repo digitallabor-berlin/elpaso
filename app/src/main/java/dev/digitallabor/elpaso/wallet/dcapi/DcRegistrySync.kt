@@ -30,9 +30,11 @@ import java.nio.ByteOrder
  *
  * We ship a matcher built in-house from CMWallet's reference C implementation (see
  * `matcher/` and `app/src/main/assets/openid4vp1_0.wasm`) rather than the binary bundled
- * with `OpenId4VpRegistry`. Building it ourselves is what lets us carry a small local
- * delta — PaSO SCA payment rendering — while keeping upstream's DCQL semantics, including
- * credential sets, signed and multisigned requests, and inline issuance entries.
+ * with `OpenId4VpRegistry`. Building it ourselves is what lets us carry two small local
+ * deltas — PaSO SCA payment rendering, and degrading a *non-payment* `transaction_data`
+ * type to an ordinary entry instead of a blank payment one that the picker drops — while
+ * keeping upstream's DCQL semantics, including credential sets, signed and multisigned
+ * requests, and inline issuance entries.
  *
  * The credential payload itself IS the stock `OpenId4VpRegistry` blob: we build that
  * registry, take its bytes, and pair them with our own matcher. See

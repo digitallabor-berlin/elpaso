@@ -1,0 +1,32 @@
+diff --git a/openid4vp1_0.c b/openid4vp1_0.c
+index 4dd4d8b..c6cd53b 100644
+--- a/openid4vp1_0.c
++++ b/openid4vp1_0.c
+@@ -66,8 +66,26 @@ void report_matched_credential(uint32_t wasm_version, cJSON* matched_doc, cJSON*
+         }
+         char *metadata = cJSON_PrintUnformatted(metadata_object);
+ 
++        /* Only route a match through the payment-entry API when we actually parsed
++           payment fields out of the transaction_data. `transaction_data` is not
++           payment-exclusive -- PaSO also defines non-payment SCA types (e.g.
++           urn:paso:sca:<authority>:login:1), which name their credential in
++           `credential_ids` exactly like a payment does but carry neither a payee nor an
++           amount. Those fall through every branch above with merchant_name and
++           transaction_amount left NULL.
++
++           Reporting such a match via AddPaymentEntryToSetV2 produces an entry with no
++           merchant, no amount and no title (the payment API takes no claim fields
++           either), and -- because `paymentEntryMatched` suppresses the AddEntryToSet
++           fallback below -- no ordinary entry is reported instead. The credential
++           matches the DCQL and is then never shown, so the wallet silently disappears
++           from the system picker. Degrade to a normal verification entry rather than
++           advertising an unrenderable payment. */
++        int haveRenderablePaymentData =
++            (merchant_name != NULL || transaction_amount != NULL);
++
+         int paymentEntryMatched = 0;
+-        if (transaction_credential_ids != NULL)
++        if (transaction_credential_ids != NULL && haveRenderablePaymentData)
+         {
+             printf("transaction cred ids %s\n", cJSON_Print(transaction_credential_ids));
+             cJSON *transaction_credential_id;

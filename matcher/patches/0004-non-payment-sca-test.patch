@@ -1,0 +1,95 @@
+diff --git a/test_runner.cc b/test_runner.cc
+index 440687e..99358ef 100644
+--- a/test_runner.cc
++++ b/test_runner.cc
+@@ -423,6 +423,15 @@ TEST_CASE("TC41_ExtractPasoPayment") {
+     RunTest("TC41_ExtractPasoPayment");
+ }
+ 
++// A transaction_data item whose type is not a payment at all (PaSO also defines
++// login/SCA types) still names its credential in credential_ids. It must degrade to
++// an ordinary verification entry: the payment branch would report it with no
++// merchant, no amount and no title, and would suppress the normal entry entirely,
++// so the credential matches and is then never shown in the system picker.
++TEST_CASE("TC42_NonPaymentScaFallsBackToEntry") {
++    RunTest("TC42_NonPaymentScaFallsBackToEntry");
++}
++
+ TEST_CASE("TC35_WasmAddEntryToSet") {
+     RunTest("TC35_WasmAddEntryToSet");
+ }
+diff --git a/testdata/TC42_NonPaymentScaFallsBackToEntry_expected.json b/testdata/TC42_NonPaymentScaFallsBackToEntry_expected.json
+new file mode 100644
+index 0000000..555292c
+--- /dev/null
++++ b/testdata/TC42_NonPaymentScaFallsBackToEntry_expected.json
+@@ -0,0 +1,31 @@
++{
++  "entrySets": {
++    "req:0;null": {
++      "entries": {
++        "0": {
++          "sdjwt_spec_rewards": {
++            "additional_info": "",
++            "credId": "sdjwt_spec_rewards",
++            "disclaimer": "",
++            "fields": [
++              [
++                "Rewards No",
++                ""
++              ]
++            ],
++            "merchant_name": "",
++            "metadata_display_text": "",
++            "subtitle": "",
++            "title": "Rewards",
++            "transaction_amount": "",
++            "type": "Verification",
++            "warning": ""
++          }
++        }
++      },
++      "setId": "req:0;null",
++      "setLength": 1
++    }
++  },
++  "standaloneEntries": []
++}
+diff --git a/testdata/TC42_NonPaymentScaFallsBackToEntry_request.json b/testdata/TC42_NonPaymentScaFallsBackToEntry_request.json
+new file mode 100644
+index 0000000..5992aad
+--- /dev/null
++++ b/testdata/TC42_NonPaymentScaFallsBackToEntry_request.json
+@@ -0,0 +1,32 @@
++{
++  "requests": [
++    {
++      "data": {
++        "dcql_query": {
++          "credentials": [
++            {
++              "claims": [
++                {
++                  "path": [
++                    "rewards_number"
++                  ]
++                }
++              ],
++              "format": "dc+sd-jwt",
++              "id": "rewards",
++              "meta": {
++                "vct_values": [
++                  "https://company.example/company_rewards"
++                ]
++              }
++            }
++          ]
++        },
++        "transaction_data": [
++          "eyJ0eXBlIjogInVybjpwYXNvOnNjYTpkZXYuZGlnaXRhbGxhYm9yOmxvZ2luOjEiLCAiY3JlZGVudGlhbF9pZHMiOiBbInJld2FyZHMiXSwgInRyYW5zYWN0aW9uX2RhdGFfaGFzaGVzX2FsZyI6IFsic2hhLTI1NiJdLCAicGF5bG9hZCI6IHsibG9naW5fZGF0ZXRpbWUiOiAiMjAyNi0wOC0yOFQxNDozNToyOFoifX0"
++        ]
++      },
++      "protocol": "openid4vp-v1-unsigned"
++    }
++  ]
++}

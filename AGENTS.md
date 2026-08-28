@@ -81,6 +81,18 @@ rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describ
   Anything else throws `IllegalArgumentException: Unknown export` at request time and
   the wallet silently vanishes from the system picker. `matcher/strip_exports.py`
   enforces this and the build asserts the result.
+- **Non-payment `transaction_data` must never take the matcher's payment path.**
+  `report_matched_credential` routes a match through `AddPaymentEntryToSetV2` whenever
+  `transaction_data.credential_ids` names it, and that branch *suppresses* the ordinary
+  `AddEntryToSet` fallback. But `transaction_data` is not payment-exclusive — PaSO also
+  defines login/SCA types — so an unrecognised or non-payment type leaves
+  `merchant_name` and `transaction_amount` NULL and reports an entry with no merchant,
+  no amount, no title and no claim fields. The credential matches the DCQL and is then
+  never shown: **the wallet silently vanishes from the picker while QR/deeplink keeps
+  working**, because that path never touches the wasm. `0003-non-payment-sca-entry-
+  fallback.patch` gates the payment branch on having actually parsed payment fields;
+  `TC42_NonPaymentScaFallsBackToEntry` locks it in. Never add a `transaction_data` type
+  to the matcher without a test case alongside it.
 - **`androidx.credentials.registry` must stay at 1.0.0-alpha05 or newer.** alpha04's
   `OpenId4VpRegistry` emits no `supported_protocols` key; the matcher iterates that
   array, so on alpha04 it processes zero requests and nothing ever matches. That
