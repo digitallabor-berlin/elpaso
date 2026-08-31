@@ -14,11 +14,14 @@ import java.time.Instant
  * [AdhocTransactionMetadataVerifier.checkPayloadClaims].
  *
  * Steps 2, 3 and the certificate bullets of step 6 are x5c mechanics shared verbatim
- * with the `credential-metadata+jwt` channel via `IssuerSignedJwt`; minting a CA
- * hierarchy to exercise them would need a cert-builder dependency the project does
- * not carry, and they are already exercised in production by the stored-metadata
- * path. What is unique to the ad-hoc channel is entirely in this function, so this
- * is where the tests belong.
+ * with the `credential-metadata+jwt` channel via `IssuerSignedJwt`, so what is unique
+ * to the ad-hoc channel is entirely in this function — hence the split.
+ *
+ * Those shared x5c steps are **untested**, here and on the stored-metadata channel.
+ * That is a gap, not a design decision: `bcpkix-jdk18on` is on the classpath
+ * (app/build.gradle.kts), so a root/intermediate/leaf hierarchy can be minted
+ * in-process and every chain, expiry and cross-bind failure exercised. Backfilling it
+ * is scoped in docs/superpowers/specs/2026-08-31-credential-signature-verification-design.md §7.
  */
 class AdhocTransactionMetadataVerifierTest {
     private val entryType = "urn:paso:sca:dev.digitallabor:limitchange:1"
