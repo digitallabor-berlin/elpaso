@@ -17,11 +17,10 @@ import java.time.Instant
  * with the `credential-metadata+jwt` channel via `IssuerSignedJwt`, so what is unique
  * to the ad-hoc channel is entirely in this function — hence the split.
  *
- * Those shared x5c steps are **untested**, here and on the stored-metadata channel.
- * That is a gap, not a design decision: `bcpkix-jdk18on` is on the classpath
- * (app/build.gradle.kts), so a root/intermediate/leaf hierarchy can be minted
- * in-process and every chain, expiry and cross-bind failure exercised. Backfilling it
- * is scoped in docs/superpowers/specs/2026-08-31-credential-signature-verification-design.md §7.
+ * The shared x5c steps are covered separately: the mechanics in
+ * `data/trust/IssuerSignedJwtX5cTest` and this channel's end-to-end happy path and
+ * per-step failures in `AdhocTransactionMetadataVerifierX5cTest`, both built on the
+ * in-process hierarchy in `testing/TestPki`.
  */
 class AdhocTransactionMetadataVerifierTest {
     private val entryType = "urn:paso:sca:dev.digitallabor:limitchange:1"

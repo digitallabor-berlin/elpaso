@@ -67,11 +67,15 @@ class TrustListService(context: Context) {
         return if (bySan.x5c_sha256_fingerprints.any { it.equals(leafFingerprint, ignoreCase = true) }) bySan else null
     }
 
+    /**
+     * Decodes base64 `x5c` entries. Uses `java.util.Base64` deliberately — the Android
+     * codec returns null under the JVM unit-test stubs, and nothing here needs it.
+     */
     fun parseX5c(x5cBase64: List<String>): List<X509Certificate> {
         val cf = CertificateFactory.getInstance("X.509")
+        val decoder = java.util.Base64.getMimeDecoder()
         return x5cBase64.map { b64 ->
-            val der = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-            cf.generateCertificate(der.inputStream()) as X509Certificate
+            cf.generateCertificate(decoder.decode(b64).inputStream()) as X509Certificate
         }
     }
 

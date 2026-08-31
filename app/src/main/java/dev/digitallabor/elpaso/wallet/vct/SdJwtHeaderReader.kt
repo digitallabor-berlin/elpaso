@@ -1,31 +1,32 @@
 package dev.digitallabor.elpaso.wallet.vct
 
-import dev.digitallabor.elpaso.wallet.util.B64u
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.util.Base64
 
 /**
  * JOSE-header inspection helpers for SD-JWT-VC credential payloads. Pure decoding, no
- * signature verification.
+ * signature verification — verification lives in
+ * `data/trust/CredentialSignatureVerifier.kt`, which calls [issuerJwt] to get the
+ * segment it then parses and checks.
  *
- * **Nothing else verifies it either.** The wallet never checks a credential's
- * issuer-signed JWT — not at issuance (`eudi-openid4vci-kt` hands the credential over as
- * an opaque string; see `IssuanceClient.encodeIssued`) and not at presentation
- * (`SdJwtPresentationBuilder` signs a KB-JWT over the payload without validating it). The
- * only issuer signatures this app verifies belong to the two PaSO metadata JWTs, via
- * `data/trust/IssuerSignedJwt.kt`; [extractX5c] exists to cross-bind those against the
- * credential's chain, which is a different and weaker claim than verifying the credential.
- *
- * Closing that gap — and the `kid`/key-set issuer signature mechanism that depends on it —
- * is designed in
- * `docs/superpowers/specs/2026-08-31-credential-signature-verification-design.md`.
+ * Decoding deliberately uses `java.util.Base64` rather than `android.util.Base64`.
+ * The Android codec returns null under the JVM unit-test stubs
+ * (`testOptions.unitTests.isReturnDefaultValues = true`), which made every x5c path
+ * that reaches this object untestable. `java.util.Base64` exists from API 26 and
+ * minSdk is 29, so nothing is lost on device.
  */
 object SdJwtHeaderReader {
+    /** base64url, tolerant of absent padding as JOSE requires. */
+    private val headerDecoder: Base64.Decoder = Base64.getUrlDecoder()
+
+    /** Standard base64, tolerant of line breaks, as `x5c` entries may carry. */
+    private val derDecoder: Base64.Decoder = Base64.getMimeDecoder()
+
     /** Returns the issuer-signed JWT segment (everything before the first `~`). */
     fun issuerJwt(payload: ByteArray): String? =
         runCatching {
@@ -42,12 +43,11 @@ object SdJwtHeaderReader {
             val jwt = issuerJwt(payload) ?: return@runCatching null
             val parts = jwt.split('.')
             if (parts.size < 2) return@runCatching null
-            val headerJson = B64u.decode(parts[0]).decodeToString()
+            val headerJson = headerDecoder.decode(parts[0]).decodeToString()
             val x5c = Json.parseToJsonElement(headerJson).jsonObject["x5c"]?.jsonArray ?: return@runCatching null
             val cf = CertificateFactory.getInstance("X.509")
             x5c.map { entry ->
-                val b64 = entry.jsonPrimitive.content
-                val der = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                val der = derDecoder.decode(entry.jsonPrimitive.content)
                 cf.generateCertificate(der.inputStream()) as X509Certificate
             }
         }.getOrNull()
