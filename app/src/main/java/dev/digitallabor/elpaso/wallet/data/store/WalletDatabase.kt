@@ -12,6 +12,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         CredentialEntity::class,
         CredentialMetadataEntity::class,
         TransactionEntity::class,
+        IssuerKeyEntity::class,
     ],
     version = 1,
     exportSchema = false,
@@ -22,6 +23,8 @@ abstract class WalletDatabase : RoomDatabase() {
     abstract fun credentialMetadata(): CredentialMetadataDao
 
     abstract fun transactions(): TransactionDao
+
+    abstract fun issuerKeys(): IssuerKeyDao
 
     companion object {
         private const val DB_NAME = "elpaso.db"
