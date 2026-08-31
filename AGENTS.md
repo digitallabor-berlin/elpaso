@@ -272,10 +272,20 @@ Established primitives — extend these rather than bypassing them with one-off
   only the `AppCompatDelegate` API is used. Do not migrate the theme.
 - **KDoc containing a literal `*/` closes the comment block early.** Write `values-xx`,
   not the glob form, inside docstrings.
-- **Room is at schema version 1 with `fallbackToDestructiveMigration()`** and no
+- **Room is at schema version 2 with `fallbackToDestructiveMigration()`** and no
   migration chain, because the app's `applicationId` means there is no installed
   base. If you ship to real users, that stops being true — add migrations before the
   first release that changes the schema.
+- **Any entity or column change MUST bump `WalletDatabase.version`.** Destructive
+  fallback does not excuse it. Room hashes the schema and compares that hash against
+  `room_master_table` when it opens the database; an unchanged version with a changed
+  hash throws `IllegalStateException: Room cannot verify the data integrity` *before*
+  any migration path — destructive or otherwise — is consulted. The failure is total
+  and looks nothing like a schema problem from the outside: the app dies on the first
+  DAO query, which is `CredentialDao.observeAll()` during Home composition, so it
+  presents as "the wallet does not start at all". This file previously claimed adding
+  a table and nullable columns was free without a bump. It is not, and that claim
+  shipped a build that could not launch.
 - **`assets/` is invisible to lint.** `UnusedResources` analyses `res/` only, so an
   orphaned asset will not be reported. Check asset references by grep when deleting
   code that consumed them.

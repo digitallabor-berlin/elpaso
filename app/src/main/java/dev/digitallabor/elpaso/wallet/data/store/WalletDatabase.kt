@@ -14,7 +14,14 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         TransactionEntity::class,
         IssuerKeyEntity::class,
     ],
-    version = 1,
+    // Bumped to 2 when `issuer_keys` and the two `credentials` binding columns were
+    // added. This bump is NOT optional and `fallbackToDestructiveMigration()` does not
+    // excuse it: Room hashes the schema and compares it against `room_master_table` on
+    // open, and an unchanged version with a changed hash throws
+    // "Room cannot verify the data integrity" *before* any migration path is consulted.
+    // Destructive fallback only engages once the version number itself differs.
+    // Any future entity or column change must bump this too.
+    version = 2,
     exportSchema = false,
 )
 abstract class WalletDatabase : RoomDatabase() {
