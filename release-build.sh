@@ -17,6 +17,8 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+VERSION="latest"
+
 APK_OUT="app/release/elpaso-release.apk"
 UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
 KEYSTORE="$HOME/dev/android_build.jks"
