@@ -24,39 +24,41 @@ data class CredentialEntity(
     val issuerBinding: String? = null,
     val issuerKeySetSource: String? = null,
 ) {
-    fun toDomain(): Credential = Credential(
-        id = id,
-        format = Format.fromWire(format) ?: error("Unknown format $format for credential $id"),
-        configurationId = configurationId,
-        issuerId = issuerId,
-        displayName = displayName,
-        displayMetadataJson = displayMetadataJson,
-        payload = payload,
-        deviceKeyAlias = deviceKeyAlias,
-        issuedAt = Instant.ofEpochMilli(issuedAt),
-        expiresAt = expiresAt?.let(Instant::ofEpochMilli),
-        lastUsedAt = lastUsedAt?.let(Instant::ofEpochMilli),
-        usageCount = usageCount,
-        issuerBinding = IssuerBinding.fromWire(issuerBinding),
-        issuerKeySetSource = issuerKeySetSource,
-    )
+    fun toDomain(): Credential =
+        Credential(
+            id = id,
+            format = Format.fromWire(format) ?: error("Unknown format $format for credential $id"),
+            configurationId = configurationId,
+            issuerId = issuerId,
+            displayName = displayName,
+            displayMetadataJson = displayMetadataJson,
+            payload = payload,
+            deviceKeyAlias = deviceKeyAlias,
+            issuedAt = Instant.ofEpochMilli(issuedAt),
+            expiresAt = expiresAt?.let(Instant::ofEpochMilli),
+            lastUsedAt = lastUsedAt?.let(Instant::ofEpochMilli),
+            usageCount = usageCount,
+            issuerBinding = IssuerBinding.fromWire(issuerBinding),
+            issuerKeySetSource = issuerKeySetSource,
+        )
 
     companion object {
-        fun fromDomain(c: Credential): CredentialEntity = CredentialEntity(
-            id = c.id,
-            format = c.format.wire,
-            configurationId = c.configurationId,
-            issuerId = c.issuerId,
-            displayName = c.displayName,
-            displayMetadataJson = c.displayMetadataJson,
-            payload = c.payload,
-            deviceKeyAlias = c.deviceKeyAlias,
-            issuedAt = c.issuedAt.toEpochMilli(),
-            expiresAt = c.expiresAt?.toEpochMilli(),
-            lastUsedAt = c.lastUsedAt?.toEpochMilli(),
-            usageCount = c.usageCount,
-            issuerBinding = c.issuerBinding?.wire,
-            issuerKeySetSource = c.issuerKeySetSource,
-        )
+        fun fromDomain(c: Credential): CredentialEntity =
+            CredentialEntity(
+                id = c.id,
+                format = c.format.wire,
+                configurationId = c.configurationId,
+                issuerId = c.issuerId,
+                displayName = c.displayName,
+                displayMetadataJson = c.displayMetadataJson,
+                payload = c.payload,
+                deviceKeyAlias = c.deviceKeyAlias,
+                issuedAt = c.issuedAt.toEpochMilli(),
+                expiresAt = c.expiresAt?.toEpochMilli(),
+                lastUsedAt = c.lastUsedAt?.toEpochMilli(),
+                usageCount = c.usageCount,
+                issuerBinding = c.issuerBinding?.wire,
+                issuerKeySetSource = c.issuerKeySetSource,
+            )
     }
 }

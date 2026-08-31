@@ -2,12 +2,12 @@ package dev.digitallabor.elpaso.wallet.data.trust
 
 import android.content.Context
 import com.nimbusds.jose.jwk.JWK
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /**
  * One issuer's trust policy.
@@ -36,31 +36,44 @@ data class TrustedVerifier(
 )
 
 @Serializable
-internal data class IssuersFile(val issuers: List<TrustedIssuer>)
+internal data class IssuersFile(
+    val issuers: List<TrustedIssuer>,
+)
 
 @Serializable
-private data class VerifiersFile(val verifiers: List<TrustedVerifier>)
+private data class VerifiersFile(
+    val verifiers: List<TrustedVerifier>,
+)
 
-class TrustListService(context: Context) {
-
+class TrustListService(
+    context: Context,
+) {
     private val json = Json { ignoreUnknownKeys = true }
     private val issuers: List<TrustedIssuer>
     private val verifiers: List<TrustedVerifier>
 
     init {
-        issuers = context.assets.open("trusted_issuers.json").use {
-            parseIssuers(it.bufferedReader().readText())
-        }
-        verifiers = context.assets.open("trusted_verifiers.json").use { read(it, VerifiersFile.serializer()) }.verifiers
+        issuers =
+            context.assets.open("trusted_issuers.json").use {
+                parseIssuers(it.bufferedReader().readText())
+            }
+        verifiers =
+            context.assets
+                .open("trusted_verifiers.json")
+                .use { read(it, VerifiersFile.serializer()) }
+                .verifiers
     }
 
     fun listIssuers(): List<TrustedIssuer> = issuers
+
     fun listVerifiers(): List<TrustedVerifier> = verifiers
 
-    fun issuerLabel(issuerId: String): String? =
-        issuers.firstOrNull { it.id.equals(issuerId, ignoreCase = true) }?.label
+    fun issuerLabel(issuerId: String): String? = issuers.firstOrNull { it.id.equals(issuerId, ignoreCase = true) }?.label
 
-    fun isIssuerTrusted(issuerId: String, x5cChain: List<X509Certificate>? = null): Boolean {
+    fun isIssuerTrusted(
+        issuerId: String,
+        x5cChain: List<X509Certificate>? = null,
+    ): Boolean {
         val entry = issuers.firstOrNull { it.id.equals(issuerId, ignoreCase = true) } ?: return false
         if (entry.x5c_sha256_fingerprints.isEmpty()) return true
         if (x5cChain.isNullOrEmpty()) return false
@@ -80,19 +93,26 @@ class TrustListService(context: Context) {
      * thumbprint. The key-set counterpart of [isIssuerTrusted]'s leaf-fingerprint check;
      * an empty pin list trusts the whole published set.
      */
-    fun isKeyTrusted(issuerId: String, jwk: JWK): Boolean {
+    fun isKeyTrusted(
+        issuerId: String,
+        jwk: JWK,
+    ): Boolean {
         val entry = issuers.firstOrNull { it.id.equals(issuerId, ignoreCase = true) } ?: return false
         return keyTrusted(entry, jwk.computeThumbprint().toString())
     }
 
-    fun resolveVerifier(clientId: String, x5cChain: List<X509Certificate>?): TrustedVerifier? {
+    fun resolveVerifier(
+        clientId: String,
+        x5cChain: List<X509Certificate>?,
+    ): TrustedVerifier? {
         val byId = verifiers.firstOrNull { it.id.equals(clientId, ignoreCase = true) }
         if (byId != null) return byId
         if (x5cChain.isNullOrEmpty()) return null
         val sans = extractDnsSans(x5cChain.first())
-        val bySan = verifiers.firstOrNull { v ->
-            v.x509_sans.any { san -> sans.any { it.equals(san, ignoreCase = true) } }
-        } ?: return null
+        val bySan =
+            verifiers.firstOrNull { v ->
+                v.x509_sans.any { san -> sans.any { it.equals(san, ignoreCase = true) } }
+            } ?: return null
         if (bySan.x5c_sha256_fingerprints.isEmpty()) return bySan
         val leafFingerprint = sha256Hex(x5cChain.first().encoded)
         return if (bySan.x5c_sha256_fingerprints.any { it.equals(leafFingerprint, ignoreCase = true) }) bySan else null
@@ -114,14 +134,15 @@ class TrustListService(context: Context) {
         cert.subjectAlternativeNames
             ?.mapNotNull { entry ->
                 if (entry.size >= 2 && entry[0] == 2) entry[1] as? String else null
-            }
-            .orEmpty()
+            }.orEmpty()
 
     private fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private fun <T> read(input: InputStream, deserializer: kotlinx.serialization.KSerializer<T>): T =
-        json.decodeFromString(deserializer, input.bufferedReader().readText())
+    private fun <T> read(
+        input: InputStream,
+        deserializer: kotlinx.serialization.KSerializer<T>,
+    ): T = json.decodeFromString(deserializer, input.bufferedReader().readText())
 
     companion object {
         private val POLICY_JSON = Json { ignoreUnknownKeys = true }
@@ -138,7 +159,10 @@ class TrustListService(context: Context) {
          * Pure thumbprint match. Comparison is case-sensitive because base64url is;
          * an empty pin list trusts the whole set.
          */
-        internal fun keyTrusted(entry: TrustedIssuer, thumbprint: String): Boolean {
+        internal fun keyTrusted(
+            entry: TrustedIssuer,
+            thumbprint: String,
+        ): Boolean {
             if (entry.jwk_thumbprints.isEmpty()) return true
             return entry.jwk_thumbprints.any { it == thumbprint }
         }
