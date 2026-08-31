@@ -1,16 +1,20 @@
 {
   "version": 1,
-  "note": "Replace with the actual EUDI dev/production issuer set before going live. Fingerprints are SHA-256 of DER-encoded leaf certs (lowercase hex).",
+  "note": "Replace with the actual EUDI dev/production issuer set before going live. Fingerprints are SHA-256 of DER-encoded leaf certs (lowercase hex). signature_mechanism is REQUIRED and declares the one Issuer Signature Mechanism the wallet will accept for that issuer (draft-ietf-oauth-sd-jwt-vc-11 §10.2) — there is no fallback between mechanisms. jwk_thumbprints are RFC 7638 SHA-256 thumbprints, used only under jwt_vc_issuer_metadata; empty means trust the whole published key set.",
   "issuers": [
     {
       "id": "https://foundry.digitallabor.dev",
       "label": "digitallabor.berlin Reference Issuer (dev)",
-      "x5c_sha256_fingerprints": []
+      "signature_mechanism": "x5c",
+      "x5c_sha256_fingerprints": [],
+      "jwk_thumbprints": []
     },
     {
       "id": "https://issuer.eudiw.dev",
       "label": "EUDI Reference Issuer (dev)",
-      "x5c_sha256_fingerprints": []
+      "signature_mechanism": "x5c",
+      "x5c_sha256_fingerprints": [],
+      "jwk_thumbprints": []
     }
   ]
 }
