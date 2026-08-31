@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
+import dev.digitallabor.elpaso.wallet.domain.model.IssuerBinding
 import java.time.Instant
 
 @Entity(tableName = "credentials")
@@ -20,6 +21,8 @@ data class CredentialEntity(
     val expiresAt: Long?,
     val lastUsedAt: Long?,
     val usageCount: Int,
+    val issuerBinding: String? = null,
+    val issuerKeySetSource: String? = null,
 ) {
     fun toDomain(): Credential = Credential(
         id = id,
@@ -34,6 +37,8 @@ data class CredentialEntity(
         expiresAt = expiresAt?.let(Instant::ofEpochMilli),
         lastUsedAt = lastUsedAt?.let(Instant::ofEpochMilli),
         usageCount = usageCount,
+        issuerBinding = IssuerBinding.fromWire(issuerBinding),
+        issuerKeySetSource = issuerKeySetSource,
     )
 
     companion object {
@@ -50,6 +55,8 @@ data class CredentialEntity(
             expiresAt = c.expiresAt?.toEpochMilli(),
             lastUsedAt = c.lastUsedAt?.toEpochMilli(),
             usageCount = c.usageCount,
+            issuerBinding = c.issuerBinding?.wire,
+            issuerKeySetSource = c.issuerKeySetSource,
         )
     }
 }

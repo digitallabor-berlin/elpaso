@@ -158,4 +158,26 @@ class IssuerSignedJwtX5cTest {
         assertEquals(3, chain?.size)
         assertEquals("CN=Leaf A", chain!!.first().subjectX500Principal.name)
     }
+
+    @Test
+    fun `verifySignature accepts a bare public key`() {
+        IssuerSignedJwt.verifySignature(signed(), leaf.keyPair.public, "L")
+    }
+
+    @Test
+    fun `verifySignature rejects a bare public key that did not sign`() {
+        val foreign = TestPki.child("CN=Foreign Leaf", root)
+        expectFailure("signature verification") {
+            IssuerSignedJwt.verifySignature(signed(), foreign.keyPair.public, "L")
+        }
+    }
+
+    @Test
+    fun `verifySignature over an EC key succeeds, pinning the negatives to the key not the plumbing`() {
+        // ES256-signed; verifying with the same key must succeed, proving the negative
+        // cases above fail because of the key and not the algorithm plumbing.
+        val ecOnly = leaf.keyPair.public
+        val jwt = SignedJWT.parse(TestPki.jws(leaf, "credential-metadata+jwt", """{"iss":"x"}""", fullChain))
+        IssuerSignedJwt.verifySignature(jwt, ecOnly, "L")
+    }
 }

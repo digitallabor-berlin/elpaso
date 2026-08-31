@@ -2,6 +2,7 @@ package dev.digitallabor.elpaso.wallet.testing
 
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
+import dev.digitallabor.elpaso.wallet.domain.model.IssuerBinding
 
 /**
  * Minimal [Credential] fixtures. Only the fields the trust and metadata code reads are
@@ -21,6 +22,8 @@ object TestCredentials {
         issuerId: String = ISSUER_ID,
         configurationId: String = VCT,
         id: String = "cred-1",
+        issuerBinding: IssuerBinding? = null,
+        issuerKeySetSource: String? = null,
     ): Credential =
         Credential(
             id = id,
@@ -35,5 +38,7 @@ object TestCredentials {
             expiresAt = null,
             lastUsedAt = null,
             usageCount = 0,
+            issuerBinding = issuerBinding,
+            issuerKeySetSource = issuerKeySetSource,
         )
 }

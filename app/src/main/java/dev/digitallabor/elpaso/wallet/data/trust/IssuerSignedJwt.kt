@@ -10,6 +10,7 @@ import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
 import dev.digitallabor.elpaso.wallet.mdoc.MdocX5cExtractor
 import dev.digitallabor.elpaso.wallet.vct.SdJwtHeaderReader
+import java.security.PublicKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.interfaces.ECPublicKey
@@ -77,20 +78,27 @@ internal object IssuerSignedJwt {
         }
     }
 
-    /** Verifies the JWS signature against the leaf certificate's public key. */
+    /**
+     * Verifies the JWS signature against [key].
+     *
+     * Generalised from the certificate-only form so the JWT VC Issuer Metadata mechanism
+     * can reuse it with a JWK-derived key. The certificate overload below delegates here,
+     * so the x5c path is byte-for-byte the same verification it always was — the two
+     * mechanisms differ in *how the key is obtained*, never in how the signature is
+     * checked.
+     */
     fun verifySignature(
         signed: SignedJWT,
-        leaf: X509Certificate,
+        key: PublicKey,
         label: String,
     ) {
-        val publicKey = leaf.publicKey
         val verifier: JWSVerifier =
             when (signed.header.algorithm) {
                 JWSAlgorithm.ES256, JWSAlgorithm.ES384, JWSAlgorithm.ES512 -> {
                     val ec =
-                        publicKey as? ECPublicKey
+                        key as? ECPublicKey
                             ?: throw IllegalStateException(
-                                "$label alg=${signed.header.algorithm} requires EC key in leaf cert",
+                                "$label alg=${signed.header.algorithm} requires an EC key",
                             )
                     ECDSAVerifier(ec)
                 }
@@ -99,9 +107,9 @@ internal object IssuerSignedJwt {
                 JWSAlgorithm.PS256, JWSAlgorithm.PS384, JWSAlgorithm.PS512,
                 -> {
                     val rsa =
-                        publicKey as? RSAPublicKey
+                        key as? RSAPublicKey
                             ?: throw IllegalStateException(
-                                "$label alg=${signed.header.algorithm} requires RSA key in leaf cert",
+                                "$label alg=${signed.header.algorithm} requires an RSA key",
                             )
                     RSASSAVerifier(rsa)
                 }
@@ -116,6 +124,13 @@ internal object IssuerSignedJwt {
             throw IllegalStateException("$label signature verification failed", e)
         }
     }
+
+    /** Verifies the JWS signature against the leaf certificate's public key. */
+    fun verifySignature(
+        signed: SignedJWT,
+        leaf: X509Certificate,
+        label: String,
+    ) = verifySignature(signed, leaf.publicKey, label)
 
     /** The credential's own certificate chain, read from its format-specific header. */
     fun credentialChain(credential: Credential): List<X509Certificate>? =
