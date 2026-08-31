@@ -151,4 +151,8 @@
 
     <!-- Subtitle of the entry shown in the system credential-creation sheet (DC API issuance). -->
     <string name="dc_issuance_save_subtitle">Save your document to El Paso</string>
+
+    <!-- Shown when a freshly issued credential's issuer signature could not be verified
+         and the credential was therefore not stored. %1$s is a technical reason. -->
+    <string name="issue_error_credential_signature">This document was rejected: its issuer\'s signature could not be verified (%1$s). Nothing was saved.</string>
 </resources>

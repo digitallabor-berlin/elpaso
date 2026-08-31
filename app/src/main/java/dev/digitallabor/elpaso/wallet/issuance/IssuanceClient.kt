@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.nimbusds.jose.jwk.Curve
+import dev.digitallabor.elpaso.wallet.R
 import dev.digitallabor.elpaso.wallet.data.crypto.KeyManager
 import dev.digitallabor.elpaso.wallet.data.network.HttpClientFactory
 import dev.digitallabor.elpaso.wallet.data.settings.LocaleApplier
@@ -11,6 +12,7 @@ import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataEntity
 import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
+import dev.digitallabor.elpaso.wallet.data.trust.CredentialSignatureVerifier
 import dev.digitallabor.elpaso.wallet.data.trust.TrustListService
 import dev.digitallabor.elpaso.wallet.dcapi.DcRegistrySync
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
@@ -77,6 +79,7 @@ class IssuanceClient(
     private val credentialMetadataClient: CredentialMetadataClient,
     private val credentialMetadataVerifier: CredentialMetadataVerifier,
     private val credentialMetadataRepository: CredentialMetadataRepository,
+    private val credentialSignatureVerifier: CredentialSignatureVerifier,
 ) {
     sealed interface State {
         data object Idle : State
@@ -385,13 +388,42 @@ class IssuanceClient(
         when (outcome) {
             is SubmissionOutcome.Success -> {
                 val payloadBytes = encodeIssued(outcome)
+                val issuerId = issuer.credentialOffer.credentialIssuerIdentifier.toString()
+
+                // The gate. paso-proof-metadata.md §3 requires the wallet to reject an
+                // issuance it cannot validate and tell the user; sd-jwt-vc §3.5 says an
+                // SD-JWT VC whose verification key cannot be validated under a permitted
+                // Issuer Signature Mechanism "MUST be rejected". Nothing is stored on
+                // failure — deliberately not behind a flag (spec §10).
+                //
+                // mdoc is exempt for now and that asymmetry is real: an ISO 18013-5 MSO is
+                // COSE_Sign1 over CBOR and is tracked as a follow-up (spec §5.6, §11).
+                val binding =
+                    if (cfg.format == Format.SdJwtVc) {
+                        credentialSignatureVerifier
+                            .verify(cfg.format, payloadBytes, issuerId, Instant.now())
+                            .getOrElse { cause ->
+                                throw CredentialSignatureRejected(
+                                    reason = cause.message ?: cause::class.java.simpleName,
+                                    cause = cause,
+                                )
+                            }
+                    } else {
+                        Log.w(
+                            LOG_TAG,
+                            "storing ${cfg.format} credential from $issuerId WITHOUT issuer-signature " +
+                                "verification — MSO COSE verification is not implemented",
+                        )
+                        null
+                    }
+
                 val (displayMetadataJson, resolvedDisplayName) = resolveDisplayMetadata(cfg, payloadBytes)
                 val credential =
                     Credential(
                         id = credentialUuid,
                         format = cfg.format,
                         configurationId = docTypeOrVct,
-                        issuerId = issuer.credentialOffer.credentialIssuerIdentifier.toString(),
+                        issuerId = issuerId,
                         displayName = resolvedDisplayName,
                         displayMetadataJson = displayMetadataJson,
                         payload = payloadBytes,
@@ -400,6 +432,8 @@ class IssuanceClient(
                         expiresAt = null,
                         lastUsedAt = null,
                         usageCount = 0,
+                        issuerBinding = binding?.binding,
+                        issuerKeySetSource = binding?.keySetSource,
                     )
                 repository.insert(credential)
                 issued += credentialUuid
@@ -552,6 +586,12 @@ class IssuanceClient(
     ): String {
         val captured = HttpClientFactory.consumeLastErrorBody()
         val chain = cause.causalChain().toList()
+        // A rejected signature is our own decision, not a server error, so it gets a
+        // localised sentence rather than whatever the library said. Placed after
+        // consumeLastErrorBody() so that side effect still runs exactly once per failure.
+        chain.firstNotNullOfOrNull { it as? CredentialSignatureRejected }?.let { rejection ->
+            return context.getString(R.string.issue_error_credential_signature, rejection.reason)
+        }
         val oauthError =
             chain.firstNotNullOfOrNull {
                 (it as? eu.europa.ec.eudi.openid4vci.CredentialIssuanceError.AccessTokenRequestFailed)

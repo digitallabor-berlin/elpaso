@@ -151,4 +151,7 @@
 
     <!-- Subtitle of the entry shown in the system credential-creation sheet (DC API issuance). -->
     <string name="dc_issuance_save_subtitle">Enregistrer votre document dans El Paso</string>
+
+    <!-- Shown when a freshly issued credential's issuer signature could not be verified. -->
+    <string name="issue_error_credential_signature">Ce document a été refusé : la signature de l\'émetteur n\'a pas pu être vérifiée (%1$s). Rien n\'a été enregistré.</string>
 </resources>
