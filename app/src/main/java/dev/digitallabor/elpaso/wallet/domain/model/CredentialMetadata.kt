@@ -139,17 +139,50 @@ internal data class LocalizedLabelDto(
     @SerialName("value_type") val valueType: String? = null,
 )
 
-internal fun CredentialMetadataPayloadDto.toDomain(): CredentialMetadata = CredentialMetadata(
-    iss = iss,
-    sub = sub,
-    format = format,
-    iat = iat,
-    exp = exp,
-    credentialMetadataUri = credentialMetadataUri,
-    display = credentialMetadata.display,
-    transactionDataTypes = credentialMetadata.transactionDataTypes.mapValues { (_, t) ->
-        TransactionDataTypeMetadata(
-            claims = t.claims.map { c ->
+/**
+ * Payload of a verified `adhoc-transaction-metadata+jwt` (paso-proof-metadata.md §5.2).
+ *
+ * Diverges from [CredentialMetadataPayloadDto] in exactly two ways, both structural:
+ * it names a single `transaction_data_type` rather than a map keyed by type, and it
+ * carries no `credential_metadata_uri` because it was never served from one — §5.4
+ * forbids persisting it, so there is nothing to renew.
+ *
+ * `metadata` reuses [TransactionDataTypeDto] because §5.2 defines it as "an object with
+ * the same structure as a single `transaction_data_types` entry value". Sharing the type
+ * is what makes the ad-hoc channel render through the same path as the stored one.
+ */
+@Serializable
+internal data class AdhocMetadataPayloadDto(
+    val iss: String,
+    val sub: String,
+    val format: String,
+    val iat: Long,
+    val exp: Long,
+    @SerialName("transaction_data_type") val transactionDataType: String,
+    val metadata: TransactionDataTypeDto,
+)
+
+internal fun CredentialMetadataPayloadDto.toDomain(): CredentialMetadata =
+    CredentialMetadata(
+        iss = iss,
+        sub = sub,
+        format = format,
+        iat = iat,
+        exp = exp,
+        credentialMetadataUri = credentialMetadataUri,
+        display = credentialMetadata.display,
+        transactionDataTypes = credentialMetadata.transactionDataTypes.mapValues { (_, t) -> t.toDomain() },
+    )
+
+/**
+ * Shared by both metadata channels: the stored `credential-metadata+jwt` reaches it
+ * once per `transaction_data_types` entry, the ad-hoc JWT once for its single type.
+ * One mapper means the two channels cannot drift in what they support.
+ */
+internal fun TransactionDataTypeDto.toDomain(): TransactionDataTypeMetadata =
+    TransactionDataTypeMetadata(
+        claims =
+            claims.map { c ->
                 ClaimMetadata(
                     path = c.path,
                     mandatory = c.mandatory,
@@ -157,15 +190,13 @@ internal fun CredentialMetadataPayloadDto.toDomain(): CredentialMetadata = Crede
                     display = c.display.map { d -> ClaimDisplay(d.locale, d.name, d.displayType) },
                 )
             },
-            uiLabels = UiLabels(
-                transactionTitle = t.uiLabels.transactionTitle.map { it.toDomain() },
-                affirmativeActionLabel = t.uiLabels.affirmativeActionLabel.map { it.toDomain() },
-                denialActionLabel = t.uiLabels.denialActionLabel.map { it.toDomain() },
-                securityHint = t.uiLabels.securityHint.map { it.toDomain() },
+        uiLabels =
+            UiLabels(
+                transactionTitle = uiLabels.transactionTitle.map { it.toDomain() },
+                affirmativeActionLabel = uiLabels.affirmativeActionLabel.map { it.toDomain() },
+                denialActionLabel = uiLabels.denialActionLabel.map { it.toDomain() },
+                securityHint = uiLabels.securityHint.map { it.toDomain() },
             ),
-        )
-    },
-)
+    )
 
-private fun LocalizedLabelDto.toDomain(): LocalizedLabel =
-    LocalizedLabel(locale = locale, value = value, valueType = valueType)
+private fun LocalizedLabelDto.toDomain(): LocalizedLabel = LocalizedLabel(locale = locale, value = value, valueType = valueType)

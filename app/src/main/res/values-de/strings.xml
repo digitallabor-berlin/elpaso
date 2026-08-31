@@ -66,6 +66,9 @@
     <string name="present_unknown_verifier">Nicht vertrauter Verifier</string>
     <string name="present_no_match">Kein passender Nachweis in deiner Wallet</string>
     <string name="present_security_hint">Sicherheitshinweis</string>
+    <string name="present_incompatible_title">Transaktion nicht überprüfbar</string>
+    <string name="present_incompatible_body">%1$s hat Transaktionsdetails gesendet, die keine gültige Signatur des Ausstellers deines Nachweises tragen. El Paso kann dir nicht zeigen, was du bestätigen würdest, deshalb wurde diese Anfrage gestoppt.</string>
+    <string name="present_incompatible_type">Transaktionstyp: %1$s</string>
     <string name="present_loading">Wird geladen…</string>
     <string name="present_error_prefix">Fehler: %1$s</string>
     <string name="present_failed_generic">Präsentation fehlgeschlagen</string>

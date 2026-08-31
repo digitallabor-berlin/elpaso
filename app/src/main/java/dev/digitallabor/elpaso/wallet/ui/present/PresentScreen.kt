@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.GppBad
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -70,7 +71,6 @@ import coil3.compose.AsyncImage
 import dev.digitallabor.elpaso.wallet.R
 import dev.digitallabor.elpaso.wallet.data.settings.LocaleApplier
 import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
-import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
 import dev.digitallabor.elpaso.wallet.dcapi.DcApiSelection
 import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
@@ -87,6 +87,7 @@ import dev.digitallabor.elpaso.wallet.presentation.PresentationClient
 import dev.digitallabor.elpaso.wallet.presentation.txdata.DynamicTransactionDataBlock
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionDataBlock
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
 import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
 import dev.digitallabor.elpaso.wallet.session.BiometricAuthorizer
 import dev.digitallabor.elpaso.wallet.ui.common.ErrorModal
@@ -113,7 +114,7 @@ fun PresentScreen(
     val client: PresentationClient = koinInject()
     val biometric: BiometricAuthorizer = koinInject()
     val repository: CredentialRepository = koinInject()
-    val credentialMetadataRepository: CredentialMetadataRepository = koinInject()
+    val metadataResolver: TransactionMetadataResolver = koinInject()
     val settings: SettingsRepository = koinInject()
     val state by client.state.collectAsState(initial = PresentationClient.State.Idle)
     val developerMode by settings.developerMode.collectAsState(initial = true)
@@ -323,10 +324,26 @@ fun PresentScreen(
                     //    between, so the review screen would be pure friction on top of
                     //    the system selector they already went through. More than one and
                     //    the user must pick which credential is disclosed.
+                    //  - AND no entry carries ad-hoc metadata (paso-proof-metadata.md §5).
+                    //
+                    // That last condition is not a performance guard, it is the whole point
+                    // of the ad-hoc channel. The justification for skipping our review screen
+                    // is that the system selector already showed the user this transaction —
+                    // but the DC API matcher (matcher/upstream/openid4vp1_0.c) never parses
+                    // the `metadata` parameter, so what it rendered carries none of the
+                    // issuer-signed labels, title or security hint the ad-hoc JWT supplies.
+                    // Auto-authorizing here would approve a transaction whose issuer-signed
+                    // description the user never saw, and would skip §5.3 verification
+                    // entirely — a verifier could attach a forged `metadata` and never have
+                    // it checked. Falling through to ResolvedContent both renders those
+                    // labels and enforces the refusal.
+                    val carriesAdhocMetadata =
+                        remember(s) { s.transactionData.any { it.adhocMetadataJwt != null } }
                     val canAutoAuthorize =
                         isDcApi &&
                             (s.verifier.trusted || developerMode) &&
-                            s.candidates.size == 1
+                            s.candidates.size == 1 &&
+                            !carriesAdhocMetadata
                     LaunchedEffect(s, canAutoAuthorize) {
                         if (canAutoAuthorize && !autoAuthorized) {
                             autoAuthorized = true
@@ -345,7 +362,7 @@ fun PresentScreen(
                         ResolvedContent(
                             resolved = s,
                             credentialsById = credentialsById,
-                            credentialMetadataRepository = credentialMetadataRepository,
+                            metadataResolver = metadataResolver,
                             settings = settings,
                             onCancel = onCancel,
                             onAuthorize = authorize,
@@ -354,6 +371,85 @@ fun PresentScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Terminal refusal for a `transaction_data` entry whose ad-hoc `metadata` JWT failed
+ * verification (paso-proof-metadata.md §5.3).
+ *
+ * There is deliberately no affirmative action here. §5.3 makes such an entry incompatible
+ * and forbids falling back to the stored credential metadata, so there is nothing the
+ * wallet can honestly show the user to approve — the details on screen would be exactly
+ * the ones whose provenance could not be established. Offering "continue anyway" would
+ * hand the decision to the person least equipped to make it.
+ *
+ * Uses `errorContainer` rather than the `tertiaryContainer` of [SecurityHintBanner]: this
+ * IS the stop signal, in the same severity tier as `UntrustedNotice`. The raw type URN is
+ * shown as a secondary line because it is the one string that makes an issuer
+ * misconfiguration diagnosable from a screenshot.
+ */
+@Composable
+private fun IncompatibleTransactionContent(
+    verifierName: String,
+    entryType: String,
+    onCancel: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.errorContainer,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GppBad,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.present_incompatible_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.present_incompatible_body, verifierName),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Text(
+                    text = stringResource(R.string.present_incompatible_type, entryType),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(text = stringResource(R.string.present_cancel))
         }
     }
 }
@@ -377,7 +473,7 @@ private fun LoadingState(label: String) {
 private fun ResolvedContent(
     resolved: PresentationClient.State.Resolved,
     credentialsById: Map<String, Credential>,
-    credentialMetadataRepository: CredentialMetadataRepository,
+    metadataResolver: TransactionMetadataResolver,
     settings: SettingsRepository,
     onCancel: () -> Unit,
     onAuthorize: (List<DcqlMatcher.Match>) -> Unit,
@@ -415,31 +511,48 @@ private fun ResolvedContent(
         remember(resolved, sourceCredential, locale) {
             mutableStateOf<Map<String, TransactionDataTypeMetadata>>(emptyMap())
         }
+    // Non-null once an entry's ad-hoc `metadata` JWT has failed §5.3. This is a refusal,
+    // not a degraded render: see [TransactionMetadataResolver] and the branch below.
+    val incompatible =
+        remember(resolved, sourceCredential, locale) {
+            mutableStateOf<TransactionMetadataResolver.Outcome.Incompatible?>(null)
+        }
     LaunchedEffect(resolved, sourceCredential, locale) {
         val src =
             sourceCredential ?: run {
                 dynamicMetadata.value = emptyMap()
+                incompatible.value = null
                 onDynamicScreenTitle(null)
                 Log.d("PresentScreen", "no source credential; clearing dynamic title")
                 return@LaunchedEffect
             }
-        val byType =
-            resolved.transactionData
-                .map { it.type }
-                .distinct()
-                .associateWith { type ->
-                    credentialMetadataRepository.getTransactionDataType(src, locale, type)
-                }.filterValues { it != null }
-                .mapValues { it.value!! }
-        dynamicMetadata.value = byType
-        Log.d("PresentScreen", "metadata loaded for credential=${src.id} types=${byType.keys}")
+        // Keyed by the entry's verbatim base64url string, not by type: ad-hoc metadata is
+        // scoped to its own entry (paso-proof-metadata.md §5.4), so two entries sharing a
+        // type must not share one entry's issuer-signed labels.
+        val byEntry =
+            when (val outcome = metadataResolver.resolve(resolved.transactionData, src, locale)) {
+                is TransactionMetadataResolver.Outcome.Incompatible -> {
+                    Log.w("PresentScreen", "refusing presentation: ${outcome.entryType} — ${outcome.reason}")
+                    dynamicMetadata.value = emptyMap()
+                    incompatible.value = outcome
+                    onDynamicScreenTitle(null)
+                    return@LaunchedEffect
+                }
+
+                is TransactionMetadataResolver.Outcome.Resolved -> {
+                    outcome.byEntry
+                }
+            }
+        incompatible.value = null
+        dynamicMetadata.value = byEntry
+        Log.d("PresentScreen", "metadata loaded for credential=${src.id} entries=${byEntry.size}")
         // Lift transaction_title up to the screen-level app bar (paso-proof-metadata.md
         // §3.2 — "Title for the consent screen"). Use the first transaction_data entry
         // that resolved against metadata; that's the entry the user is consenting to.
         val title =
             resolved.transactionData
                 .firstNotNullOfOrNull { entry ->
-                    val md = byType[entry.type] ?: return@firstNotNullOfOrNull null
+                    val md = byEntry[entry.raw] ?: return@firstNotNullOfOrNull null
                     val label = md.uiLabels.transactionTitle.pick(locale) ?: return@firstNotNullOfOrNull null
                     val formatted =
                         dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer
@@ -466,10 +579,10 @@ private fun ResolvedContent(
     // general consent screen share the same action row.
     val primaryDynamicLabels: TransactionDataTypeMetadata? =
         resolved.transactionData
-            .firstNotNullOfOrNull { dynamicMetadata.value[it.type] }
+            .firstNotNullOfOrNull { dynamicMetadata.value[it.raw] }
     val primaryPayload =
         resolved.transactionData
-            .firstOrNull { dynamicMetadata.value[it.type] != null }
+            .firstOrNull { dynamicMetadata.value[it.raw] != null }
             ?.payloadScope
     val dynamicAffirmative: ValueTypeFormatters.Formatted? =
         primaryDynamicLabels
@@ -503,6 +616,20 @@ private fun ResolvedContent(
     // paying card in a carousel, and none of the claim-path detail below. Non-payment
     // requests keep that detail — for attribute sharing it *is* the consent record,
     // whereas a payer approving an amount to a merchant is answering a different question.
+    // §5.3: an entry whose `metadata` parameter fails verification is incompatible, and
+    // the wallet SHALL NOT fall back to stored metadata for it. Checked before the payment
+    // branch so a payment entry cannot slip past on the purpose-built screen — that screen
+    // renders amount and payee from the entry itself, which is exactly the data the failed
+    // signature was supposed to vouch for.
+    incompatible.value?.let { failure ->
+        IncompatibleTransactionContent(
+            verifierName = resolved.verifier.displayLabel,
+            entryType = failure.entryType,
+            onCancel = onCancel,
+        )
+        return
+    }
+
     val paymentSummary = remember(resolved) { paymentSummaryOf(resolved.transactionData) }
     if (paymentSummary != null) {
         PaymentConsentContent(
@@ -537,7 +664,7 @@ private fun ResolvedContent(
         )
 
         resolved.transactionData.forEach { td ->
-            val metadata = dynamicMetadata.value[td.type]
+            val metadata = dynamicMetadata.value[td.raw]
             if (metadata != null) {
                 DynamicTransactionDataBlock(item = td, metadata = metadata, locale = locale)
             } else {

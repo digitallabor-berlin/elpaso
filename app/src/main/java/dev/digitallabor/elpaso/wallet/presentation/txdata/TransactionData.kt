@@ -3,6 +3,7 @@ package dev.digitallabor.elpaso.wallet.presentation.txdata
 import android.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -44,6 +45,18 @@ sealed interface TransactionData {
      * (minus `type`) is used.
      */
     val payloadScope: JsonObject? get() = decodePayloadScope(raw)
+
+    /**
+     * The ad-hoc transaction data metadata JWT carried by this entry
+     * (paso-proof-metadata.md §5.1 `metadata`), or null when the verifier supplied none.
+     *
+     * Deliberately the raw compact JWT and not a decoded object: the payload is
+     * meaningless until [AdhocTransactionMetadataVerifier] has checked the signature and
+     * bound it to the targeted credential (§5.3). Presence alone confers nothing — a
+     * present-but-invalid JWT makes the entry incompatible (§5.4), which is why callers
+     * must distinguish it from absence rather than treating both as "no metadata".
+     */
+    val adhocMetadataJwt: String? get() = decodeAdhocMetadataJwt(raw)
 
     data class PaymentData(
         override val raw: String,
@@ -276,6 +289,25 @@ sealed interface TransactionData {
             val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.US_ASCII))
             return Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
         }
+
+        internal fun decodeAdhocMetadataJwt(raw: String): String? =
+            runCatching {
+                val decoded = Base64.decode(raw, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+                extractAdhocMetadataJwt(json.parseToJsonElement(decoded.decodeToString()).jsonObject)
+            }.getOrNull()
+
+        /**
+         * Pure over [JsonObject] (no `android.util.Base64`) so it is unit-testable on the JVM.
+         *
+         * A non-string `metadata` is treated as absent rather than propagated: §5.1 types the
+         * parameter as a string, and letting a malformed optional field abort parsing would
+         * take down an entry the wallet could otherwise render from stored metadata.
+         */
+        internal fun extractAdhocMetadataJwt(obj: JsonObject): String? =
+            (obj["metadata"] as? JsonPrimitive)
+                ?.takeIf { it.isString }
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
 
         internal fun decodePayloadScope(raw: String): JsonObject? =
             runCatching {

@@ -21,6 +21,8 @@ import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationClient
 import dev.digitallabor.elpaso.wallet.presentation.builder.MdocDeviceResponseBuilder
 import dev.digitallabor.elpaso.wallet.presentation.builder.SdJwtPresentationBuilder
+import dev.digitallabor.elpaso.wallet.presentation.txdata.AdhocTransactionMetadataVerifier
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
 import dev.digitallabor.elpaso.wallet.session.AppLockManager
 import dev.digitallabor.elpaso.wallet.session.BiometricAuthorizer
 import dev.digitallabor.elpaso.wallet.session.BiometricCipherAuthorizer
@@ -76,6 +78,8 @@ val presentationModule =
     module {
         single { DcqlMatcher() }
         single { DcqlCandidateResolver() }
+        single { AdhocTransactionMetadataVerifier(get()) }
+        single { TransactionMetadataResolver(get(), get()) }
         single { SdJwtPresentationBuilder(get()) }
         single { MdocDeviceResponseBuilder(get()) }
         single { PresentationClient(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }

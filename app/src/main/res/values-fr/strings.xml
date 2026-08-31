@@ -66,6 +66,9 @@
     <string name="present_unknown_verifier">Vérificateur non approuvé</string>
     <string name="present_no_match">Aucun justificatif correspondant dans votre portefeuille</string>
     <string name="present_security_hint">Avis de sécurité</string>
+    <string name="present_incompatible_title">Transaction non vérifiable</string>
+    <string name="present_incompatible_body">%1$s a envoyé des détails de transaction qui ne portent pas de signature valide de l\'émetteur de votre justificatif. El Paso ne peut pas vous montrer ce que vous approuveriez, cette demande a donc été interrompue.</string>
+    <string name="present_incompatible_type">Type de transaction : %1$s</string>
     <string name="present_loading">Chargement…</string>
     <string name="present_error_prefix">Erreur : %1$s</string>
     <string name="present_failed_generic">Échec de la présentation</string>

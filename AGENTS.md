@@ -55,7 +55,7 @@ rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describ
   base64url SHA-256` and `TransactionDataTest.parse PaymentData picks up payee and
   amount fields` throw `NullPointerException` on the JVM because they call
   `android.util.Base64`. **The invariant is that those two are the *only* failures** —
-  as of writing that reads `206 tests completed, 2 failed`, but the total climbs
+  as of writing that reads `225 tests completed, 2 failed`, but the total climbs
   whenever tests are added, so judge a run by the names of the failures, not the count.
   Do not "fix" them by mocking unless you are genuinely changing `TransactionData`.
 - **JVM unit-test stubs**: `testOptions.unitTests.isReturnDefaultValues = true` means
@@ -136,6 +136,31 @@ metadata shape; matching a draft you remember will diverge from how real issuers
 verifiers behave. The wired libraries (`eudi-openid4vci-kt 0.11.0`,
 `eudi-openid4vp-kt 0.13.0`) implement 1.0 — let library behaviour and the 1.0 specs
 win when they conflict with older guidance.
+
+**Issuer-signed consent metadata arrives on two channels, and they fail differently.**
+`CredentialMetadataVerifier` handles the stored `credential-metadata+jwt`;
+`AdhocTransactionMetadataVerifier` handles the `adhoc-transaction-metadata+jwt` a
+verifier may attach to a single `transaction_data` entry via its `metadata` parameter
+(paso-proof-metadata.md §5). They share their x5c mechanics through
+`IssuerSignedJwt` — §5.3 steps 2/3/6 are defined *by reference* to §7, so they are one
+implementation on purpose; do not fork it. Three invariants are easy to undo:
+
+- **A failed ad-hoc JWT is a refusal, not a fallback.** §5.3 forbids falling back to the
+  stored metadata for that entry, so `TransactionMetadataResolver` returns
+  `Outcome.Incompatible` and `PresentScreen` renders a cancel-only screen. The wallet's
+  usual soft-fallback stance stops here: absence of metadata is normal, but
+  presence-but-invalid is a verifier-triggered signal.
+- **A verified ad-hoc JWT must never touch `CredentialMetadataRepository`.** Asking it
+  fires the lazy fetch-and-upsert path — a network call mid-presentation (§8
+  linkability) and a write of metadata §5.4 forbids persisting.
+- **DC API auto-authorize is gated on `!carriesAdhocMetadata`.** The wasm matcher never
+  parses `metadata`, so the system picker showed none of the issuer-signed labels — and
+  auto-authorizing would skip §5.3 verification entirely. Removing that condition makes
+  a forged `metadata` parameter unreachable by any check.
+
+Metadata is keyed per *entry* (the verbatim base64url string), never per type: §5.4
+scopes ad-hoc metadata to its own entry, so two entries sharing a `type` must not share
+one entry's issuer-signed labels.
 
 **Protocol identifiers are never renamed.** The deep-link schemes
 `openid-credential-offer`, `haip`, `openid4vp`, and `eudi-openid4vp` are protocol
