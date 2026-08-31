@@ -5,9 +5,12 @@ import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSVerifier
 import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.crypto.RSASSAVerifier
+import com.nimbusds.jose.jwk.AsymmetricJWK
+import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jwt.SignedJWT
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.Format
+import dev.digitallabor.elpaso.wallet.domain.model.IssuerBinding
 import dev.digitallabor.elpaso.wallet.mdoc.MdocX5cExtractor
 import dev.digitallabor.elpaso.wallet.vct.SdJwtHeaderReader
 import java.security.PublicKey
@@ -162,4 +165,75 @@ internal object IssuerSignedJwt {
             "$label leaf subject $jwtLeafSubject ≠ credential leaf subject $credentialLeafSubject"
         }
     }
+
+    /**
+     * The credential binding of paso-proof-metadata.md §7 step 6, **key-set bullet**: the
+     * metadata JWT must have been verified "using a key from the same issuer key set that
+     * verifies the credential itself".
+     *
+     * The certificate bullet's analogue is [crossBind]; the two are mutually exclusive by
+     * construction, and which one applies is decided by the credential's *recorded*
+     * mechanism, never by the metadata JWT's header. That is
+     * draft-ietf-oauth-sd-jwt-vc-11 §10.2 one level up: were the header allowed to decide,
+     * a verifier would choose which binding rule the wallet applies to a credential simply
+     * by choosing what to put in its own JWT.
+     *
+     * Three checks, in this order, each closing a distinct hole:
+     *
+     * 1. The credential was itself verified by a key set. A credential verified by x5c —
+     *    or one stored before the wallet verified anything — has no key-set anchor, so
+     *    this branch does not apply to it and proceeding would invent one.
+     * 2. [keySet] is *the same* key set, identified by [IssuerKeySet.sourceUrl]. "Same
+     *    issuer" is not what the spec says and is materially weaker: an issuer may publish
+     *    more than one set, and only one of them verified this credential.
+     * 3. The signature verifies under a key from that set. `kid` narrows the candidates
+     *    when present; §5.2 only RECOMMENDS it, so its absence means trying each key
+     *    rather than failing.
+     */
+    fun bindToKeySet(
+        signed: SignedJWT,
+        credential: Credential,
+        keySet: IssuerKeySet,
+        label: String,
+    ) {
+        // 1 — the credential's own mechanism decides, and it must be the key-set one.
+        check(credential.issuerBinding == IssuerBinding.KeySet) {
+            "$label: credential ${credential.id} was not verified by a key set " +
+                "(binding=${credential.issuerBinding}); the key-set binding rule does not apply"
+        }
+
+        // An x5c on the metadata JWT under this branch is a mechanism-confusion attempt,
+        // not a redundancy to ignore.
+        check(signed.header.x509CertChain == null) {
+            "$label mechanism confusion: x5c present on a metadata JWT bound to a key set"
+        }
+
+        // 2 — the SAME key set, not merely one of this issuer's.
+        val recordedSource = credential.issuerKeySetSource
+        check(recordedSource != null && recordedSource == keySet.sourceUrl) {
+            "$label was resolved from a different issuer key set: ${keySet.sourceUrl} ≠ $recordedSource"
+        }
+
+        // 3 — verify under a key from that set.
+        val kid = signed.header.keyID
+        val candidates = keySet.byKid(kid)
+        check(candidates.isNotEmpty()) {
+            "$label kid=$kid names no key in the issuer key set from ${keySet.sourceUrl}"
+        }
+        val verified =
+            candidates.any { candidate ->
+                runCatching { verifySignature(signed, publicKeyOf(candidate, label), label) }.isSuccess
+            }
+        check(verified) {
+            "$label verified against no key in the issuer key set from ${keySet.sourceUrl}"
+        }
+    }
+
+    /** A JWK's public key, for [verifySignature]. Throws for a symmetric JWK. */
+    private fun publicKeyOf(
+        jwk: JWK,
+        label: String,
+    ): PublicKey =
+        (jwk as? AsymmetricJWK)?.toPublicKey()
+            ?: throw IllegalStateException("$label key ${jwk.keyID} is not an asymmetric JWK")
 }
