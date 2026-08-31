@@ -6,9 +6,9 @@ import dev.digitallabor.elpaso.wallet.data.network.HttpClientFactory
 import dev.digitallabor.elpaso.wallet.data.settings.SettingsRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialMetadataRepository
 import dev.digitallabor.elpaso.wallet.data.store.CredentialRepository
+import dev.digitallabor.elpaso.wallet.data.store.IssuerKeyRepository
 import dev.digitallabor.elpaso.wallet.data.store.TransactionRepository
 import dev.digitallabor.elpaso.wallet.data.store.WalletDatabase
-import dev.digitallabor.elpaso.wallet.data.store.IssuerKeyRepository
 import dev.digitallabor.elpaso.wallet.data.trust.CacheOnlyIssuerKeySetResolver
 import dev.digitallabor.elpaso.wallet.data.trust.CachingIssuerKeySetResolver
 import dev.digitallabor.elpaso.wallet.data.trust.CredentialSignatureVerifier
@@ -78,7 +78,9 @@ val issuanceModule =
         single { DPoPSigner(get()) }
         single { VctMetadataClient(get()) }
         single { CredentialMetadataClient(get()) }
-        single { CredentialMetadataVerifier(get()) }
+        // Cache-only on both metadata channels: either can run at consent time, and a
+        // fetch correlated with a presentation is the §8 linkability hazard.
+        single { CredentialMetadataVerifier(get(), get(named("cacheOnly"))) }
         single { JwtVcIssuerMetadataClient(get()) }
         // Two resolvers, named so the injection site states which stance it takes.
         // "caching" may fetch and belongs to issuance; "cacheOnly" cannot fetch and
@@ -89,8 +91,20 @@ val issuanceModule =
         single { CredentialMetadataRefresher(get(), get(), get(), get(), get(), get(), get(), get(named("caching"))) }
         single {
             IssuanceClient(
-                get(), get(), get(), get(), get(), get(), get(),
-                get(), get(), get(), get(), get(), get(), get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
+                get(),
             )
         }
     }
@@ -99,7 +113,7 @@ val presentationModule =
     module {
         single { DcqlMatcher() }
         single { DcqlCandidateResolver() }
-        single { AdhocTransactionMetadataVerifier(get()) }
+        single { AdhocTransactionMetadataVerifier(get(), get(named("cacheOnly"))) }
         single { TransactionMetadataResolver(get(), get()) }
         single { SdJwtPresentationBuilder(get()) }
         single { MdocDeviceResponseBuilder(get()) }

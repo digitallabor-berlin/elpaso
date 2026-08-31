@@ -89,7 +89,7 @@ class TransactionMetadataResolverTest {
             // hazard) and a write of metadata this transaction is not entitled to store.
             val repo = mockk<CredentialMetadataRepository>()
             val verifier = mockk<AdhocTransactionMetadataVerifier>()
-            every { verifier.verify(any(), any(), any(), any()) } returns Result.success(metadata("adhoc"))
+            coEvery { verifier.verify(any(), any(), any(), any()) } returns Result.success(metadata("adhoc"))
 
             val outcome =
                 TransactionMetadataResolver(repo, verifier)
@@ -107,7 +107,7 @@ class TransactionMetadataResolverTest {
             // for a transaction_data entry whose metadata parameter fails verification."
             val repo = mockk<CredentialMetadataRepository>()
             val verifier = mockk<AdhocTransactionMetadataVerifier>()
-            every { verifier.verify(any(), any(), any(), any()) } returns
+            coEvery { verifier.verify(any(), any(), any(), any()) } returns
                 Result.failure(IllegalStateException("ad-hoc metadata JWT signature verification failed"))
 
             val outcome =
@@ -128,7 +128,7 @@ class TransactionMetadataResolverTest {
             val repo = mockk<CredentialMetadataRepository>()
             val verifier = mockk<AdhocTransactionMetadataVerifier>()
             coEvery { repo.getTransactionDataType(any(), any(), any()) } returns metadata("stored")
-            every { verifier.verify(any(), any(), any(), any()) } returns Result.failure(IllegalStateException("nope"))
+            coEvery { verifier.verify(any(), any(), any(), any()) } returns Result.failure(IllegalStateException("nope"))
 
             val outcome =
                 TransactionMetadataResolver(repo, verifier).resolve(
@@ -167,7 +167,7 @@ class TransactionMetadataResolverTest {
             val repo = mockk<CredentialMetadataRepository>()
             val verifier = mockk<AdhocTransactionMetadataVerifier>()
             coEvery { repo.getTransactionDataType(any(), any(), any()) } returns metadata("stored")
-            every { verifier.verify(any(), any(), any(), any()) } returns Result.success(metadata("adhoc"))
+            coEvery { verifier.verify(any(), any(), any(), any()) } returns Result.success(metadata("adhoc"))
 
             val outcome =
                 TransactionMetadataResolver(repo, verifier).resolve(

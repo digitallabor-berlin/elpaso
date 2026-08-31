@@ -2,10 +2,12 @@ package dev.digitallabor.elpaso.wallet.presentation.txdata
 
 import com.nimbusds.jwt.SignedJWT
 import dev.digitallabor.elpaso.wallet.data.network.HttpClientFactory
+import dev.digitallabor.elpaso.wallet.data.trust.IssuerKeySetResolver
 import dev.digitallabor.elpaso.wallet.data.trust.IssuerSignedJwt
 import dev.digitallabor.elpaso.wallet.data.trust.TrustListService
 import dev.digitallabor.elpaso.wallet.domain.model.AdhocMetadataPayloadDto
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
+import dev.digitallabor.elpaso.wallet.domain.model.IssuerBinding
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.toDomain
 import java.time.Instant
@@ -29,13 +31,14 @@ import java.time.Instant
  */
 class AdhocTransactionMetadataVerifier(
     private val trustListService: TrustListService,
+    private val keySetResolver: IssuerKeySetResolver,
 ) {
     /**
      * @param jwt the compact JWT from the entry's `metadata` parameter
      * @param entryType the `type` of the enclosing `transaction_data` entry (§5.3 step 7)
      * @param credential the PaSO Credential the entry targets
      */
-    fun verify(
+    suspend fun verify(
         jwt: String,
         entryType: String,
         credential: Credential,
@@ -50,10 +53,30 @@ class AdhocTransactionMetadataVerifier(
             val typ = signed.header.type?.type
             check(typ == EXPECTED_TYP) { "$LABEL has typ=$typ; expected $EXPECTED_TYP" }
 
-            // §5.3.2/§5.3.3 — chain, signature, trust store
-            val chain = IssuerSignedJwt.readX5cChain(signed, LABEL)
-            IssuerSignedJwt.validateChain(chain, now, LABEL)
-            IssuerSignedJwt.verifySignature(signed, chain.first(), LABEL)
+            // §5.3.2/§5.3.3 — the key is established by the mechanism that verified THIS
+            // credential, never by this JWT's header. This JWT comes from the Relying
+            // Party (§5.5), so letting its header pick the rule would hand mechanism
+            // selection to the least trusted party in the exchange (sd-jwt-vc §10.2).
+            val binding =
+                credential.issuerBinding
+                    ?: error(
+                        "credential ${credential.id} has no recorded issuer binding; " +
+                            "ad-hoc metadata cannot be bound to it",
+                    )
+
+            val chain =
+                when (binding) {
+                    IssuerBinding.X5c -> {
+                        val c = IssuerSignedJwt.readX5cChain(signed, LABEL)
+                        IssuerSignedJwt.validateChain(c, now, LABEL)
+                        IssuerSignedJwt.verifySignature(signed, c.first(), LABEL)
+                        c
+                    }
+
+                    IssuerBinding.KeySet -> {
+                        null
+                    }
+                }
 
             val payload =
                 HttpClientFactory.json.decodeFromString(
@@ -74,12 +97,31 @@ class AdhocTransactionMetadataVerifier(
                 now = now,
             )
 
-            // §5.3.6 — credential binding, certificate bullets. This is the check that turns
-            // "signed by someone a CA vetted" into "signed by THIS credential's issuer".
-            val credentialChain =
-                IssuerSignedJwt.credentialChain(credential)
-                    ?: error("credential ${credential.id} has no x5c chain to cross-bind against")
-            IssuerSignedJwt.crossBind(jwtChain = chain, credentialChain = credentialChain, label = LABEL)
+            // §5.3.6 — credential binding. This is the check that turns "signed by someone
+            // a CA vetted" (or "signed by someone in some key set") into "signed by THIS
+            // credential's issuer". Which of the two rules applies was fixed above.
+            when (binding) {
+                IssuerBinding.X5c -> {
+                    val credentialChain =
+                        IssuerSignedJwt.credentialChain(credential)
+                            ?: error("credential ${credential.id} has no x5c chain to cross-bind against")
+                    IssuerSignedJwt.crossBind(
+                        jwtChain = requireNotNull(chain),
+                        credentialChain = credentialChain,
+                        label = LABEL,
+                    )
+                }
+
+                IssuerBinding.KeySet -> {
+                    val keySet = keySetResolver.resolve(credential.issuerId, now).getOrThrow()
+                    IssuerSignedJwt.bindToKeySet(
+                        signed = signed,
+                        credential = credential,
+                        keySet = keySet,
+                        label = LABEL,
+                    )
+                }
+            }
 
             toMetadata(payload)
         }

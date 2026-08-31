@@ -1,10 +1,14 @@
 package dev.digitallabor.elpaso.wallet.presentation.txdata
 
+import dev.digitallabor.elpaso.wallet.data.trust.IssuerKeySet
+import dev.digitallabor.elpaso.wallet.data.trust.IssuerKeySetResolver
 import dev.digitallabor.elpaso.wallet.data.trust.TrustListService
+import dev.digitallabor.elpaso.wallet.domain.model.IssuerBinding
 import dev.digitallabor.elpaso.wallet.testing.TestCredentials
 import dev.digitallabor.elpaso.wallet.testing.TestPki
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,11 +30,21 @@ class AdhocTransactionMetadataVerifierX5cTest {
         mockk {
             every { isIssuerTrusted(any(), any()) } returns true
         }
-    private val verifier = AdhocTransactionMetadataVerifier(trustList)
+
+    /** The x5c path must never resolve a key set; a success here would be a bug. */
+    private val noKeySets =
+        object : IssuerKeySetResolver {
+            override suspend fun resolve(
+                issuerId: String,
+                now: java.time.Instant,
+            ): Result<IssuerKeySet> = Result.failure(IllegalStateException("the x5c path must not resolve a key set"))
+        }
+    private val verifier = AdhocTransactionMetadataVerifier(trustList, noKeySets)
 
     private val credential =
         TestCredentials.sdJwt(
             issuerJwt = TestPki.jws(leaf, "dc+sd-jwt", """{"iss":"${TestCredentials.ISSUER_ID}"}""", chain),
+            issuerBinding = IssuerBinding.X5c,
         )
 
     private fun payload(type: String = entryType) =
@@ -67,60 +81,67 @@ class AdhocTransactionMetadataVerifierX5cTest {
     }
 
     @Test
-    fun `happy path verifies and decodes`() {
-        val result = verifier.verify(jwt(), entryType, credential, now)
-        assertTrue("expected success, got ${result.exceptionOrNull()}", result.isSuccess)
-        assertEquals(1, result.getOrThrow().claims.size)
-    }
+    fun `happy path verifies and decodes`() =
+        runTest {
+            val result = verifier.verify(jwt(), entryType, credential, now)
+            assertTrue("expected success, got ${result.exceptionOrNull()}", result.isSuccess)
+            assertEquals(1, result.getOrThrow().claims.size)
+        }
 
     @Test
-    fun `a credential-metadata JWT replayed into this slot is refused on typ`() {
-        val message = failureMessage(verifier.verify(jwt(typ = "credential-metadata+jwt"), entryType, credential, now))
-        assertTrue(message, message.contains("typ="))
-    }
+    fun `a credential-metadata JWT replayed into this slot is refused on typ`() =
+        runTest {
+            val message = failureMessage(verifier.verify(jwt(typ = "credential-metadata+jwt"), entryType, credential, now))
+            assertTrue(message, message.contains("typ="))
+        }
 
     @Test
-    fun `missing x5c is rejected`() {
-        val message = failureMessage(verifier.verify(jwt(jwtChain = null), entryType, credential, now))
-        assertTrue(message, message.contains("missing x5c header"))
-    }
+    fun `missing x5c is rejected`() =
+        runTest {
+            val message = failureMessage(verifier.verify(jwt(jwtChain = null), entryType, credential, now))
+            assertTrue(message, message.contains("missing x5c header"))
+        }
 
     @Test
-    fun `signature by a foreign key is rejected`() {
-        val foreign = TestPki.child("CN=Issuer Leaf", root)
-        val forged = TestPki.jws(foreign, "adhoc-transaction-metadata+jwt", payload(), chain)
-        val message = failureMessage(verifier.verify(forged, entryType, credential, now))
-        assertTrue(message, message.contains("signature verification"))
-    }
+    fun `signature by a foreign key is rejected`() =
+        runTest {
+            val foreign = TestPki.child("CN=Issuer Leaf", root)
+            val forged = TestPki.jws(foreign, "adhoc-transaction-metadata+jwt", payload(), chain)
+            val message = failureMessage(verifier.verify(forged, entryType, credential, now))
+            assertTrue(message, message.contains("signature verification"))
+        }
 
     @Test
-    fun `untrusted issuer is rejected`() {
-        every { trustList.isIssuerTrusted(any(), any()) } returns false
-        val message = failureMessage(verifier.verify(jwt(), entryType, credential, now))
-        assertTrue(message, message.contains("not trusted"))
-    }
+    fun `untrusted issuer is rejected`() =
+        runTest {
+            every { trustList.isIssuerTrusted(any(), any()) } returns false
+            val message = failureMessage(verifier.verify(jwt(), entryType, credential, now))
+            assertTrue(message, message.contains("not trusted"))
+        }
 
     @Test
-    fun `cross-bind root mismatch is rejected`() {
-        val otherRoot = TestPki.ca("CN=Other Root")
-        val otherLeaf = TestPki.child("CN=Issuer Leaf", otherRoot)
-        val forged =
-            TestPki.jws(
-                otherLeaf,
-                "adhoc-transaction-metadata+jwt",
-                payload(),
-                TestPki.chain(otherLeaf, otherRoot),
-            )
-        val message = failureMessage(verifier.verify(forged, entryType, credential, now))
-        assertTrue(message, message.contains("root CA does not match"))
-    }
+    fun `cross-bind root mismatch is rejected`() =
+        runTest {
+            val otherRoot = TestPki.ca("CN=Other Root")
+            val otherLeaf = TestPki.child("CN=Issuer Leaf", otherRoot)
+            val forged =
+                TestPki.jws(
+                    otherLeaf,
+                    "adhoc-transaction-metadata+jwt",
+                    payload(),
+                    TestPki.chain(otherLeaf, otherRoot),
+                )
+            val message = failureMessage(verifier.verify(forged, entryType, credential, now))
+            assertTrue(message, message.contains("root CA does not match"))
+        }
 
     @Test
-    fun `transaction_data_type mismatch is rejected`() {
-        val message =
-            failureMessage(
-                verifier.verify(jwt(payloadJson = payload(type = "urn:paso:sca:other:1")), entryType, credential, now),
-            )
-        assertTrue(message, message.contains("transaction_data_type"))
-    }
+    fun `transaction_data_type mismatch is rejected`() =
+        runTest {
+            val message =
+                failureMessage(
+                    verifier.verify(jwt(payloadJson = payload(type = "urn:paso:sca:other:1")), entryType, credential, now),
+                )
+            assertTrue(message, message.contains("transaction_data_type"))
+        }
 }
