@@ -55,7 +55,7 @@ rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describ
   base64url SHA-256` and `TransactionDataTest.parse PaymentData picks up payee and
   amount fields` throw `NullPointerException` on the JVM because they call
   `android.util.Base64`. **The invariant is that those two are the *only* failures** —
-  as of writing that reads `225 tests completed, 2 failed`, but the total climbs
+  as of writing that reads `359 tests completed, 2 failed`, but the total climbs
   whenever tests are added, so judge a run by the names of the failures, not the count.
   Do not "fix" them by mocking unless you are genuinely changing `TransactionData`.
 - **JVM unit-test stubs**: `testOptions.unitTests.isReturnDefaultValues = true` means
@@ -157,6 +157,18 @@ implementation on purpose; do not fork it. Three invariants are easy to undo:
   parses `metadata`, so the system picker showed none of the issuer-signed labels — and
   auto-authorizing would skip §5.3 verification entirely. Removing that condition makes
   a forged `metadata` parameter unreachable by any check.
+- **The credential's *recorded* mechanism selects the binding rule — never a JWT header.**
+  Each credential stores `issuerBinding` (`x5c` / `key_set`) and `issuerKeySetSource`,
+  written by `CredentialSignatureVerifier` at issuance under the `signature_mechanism` its
+  issuer declares in `trusted_issuers.json`. Both metadata verifiers dispatch §7 step 6 /
+  §5.3 step 6 on that stored value: `crossBind` for `x5c`, `bindToKeySet` for `key_set`.
+  An `x5c` presented under a key-set credential, or its absence under an x5c one, is a
+  rejection logged as mechanism confusion — not a fallback. This is
+  draft-ietf-oauth-sd-jwt-vc-11 §10.2 ("for any given `iss` value, an attacker cannot
+  influence the type of verification method"), and it matters most on the ad-hoc channel,
+  where the JWT arrives from the verifier. The natural-looking implementation — try
+  `x5c`, fall back to `kid` — is exactly what §10.2 forbids, and it reads as defensive,
+  which is why it needs saying here.
 
 Metadata is keyed per *entry* (the verbatim base64url string), never per type: §5.4
 scopes ad-hoc metadata to its own entry, so two entries sharing a `type` must not share
@@ -231,6 +243,22 @@ Established primitives — extend these rather than bypassing them with one-off
 
 ## Common gotchas
 
+- **Issuer key sets are read-only during a presentation.** `CacheOnlyIssuerKeySetResolver`
+  is injected into both metadata verifiers and cannot fetch; `CachingIssuerKeySetResolver`
+  may, and goes only to issuance and the boot-time refresh sweep. The split is a type, not
+  a flag, because a fetch correlated with a verifier interaction is the
+  paso-proof-metadata.md §8 linkability hazard. A cache miss at consent time is a
+  verification failure by design — do not "fix" it by handing the caching resolver to a
+  presentation-side component.
+- **The `issuer_keys` cache ignores the metadata-cache-enabled setting.** That setting
+  governs credential *metadata*, which the wallet can do without. An issuer key set is the
+  anchor a key-set-mechanism credential is verified against; dropping it would turn a
+  privacy preference into "this credential can no longer be verified". Only the TTL is
+  shared.
+- **The issuance signature gate is not behind `developerMode`.** Developer mode skips the
+  trust-list gate for issuance and presentation, but a credential whose issuer signature
+  does not verify is never stored regardless. If a test issuer stops working, fix its
+  `trusted_issuers.json` entry or the issuer — do not add a flag.
 - **`HttpClientFactory` logs full requests.** URL redaction for secret-bearing query
   params lives in `SECRET_QUERY_PARAMS` (`key`, `access_token`, `token`, `api_key`,
   `apikey`), and `Authorization`-style headers are scrubbed by `redactHeader`. Add any

@@ -150,7 +150,7 @@ gradle :app:testDebugUnitTest
 Both throw `NullPointerException` because they call `android.util.Base64`, which the
 JVM unit-test stub returns `null` from (`testOptions.unitTests.isReturnDefaultValues
 = true`). This is expected. **A green run is those two failures and nothing else** — at
-the time of writing that prints `225 tests completed, 2 failed`, but the total grows as
+the time of writing that prints `359 tests completed, 2 failed`, but the total grows as
 tests are added, so check the failure names rather than the count. Do not "fix" them by
 mocking unless you are actually changing `TransactionData`.
 
@@ -198,6 +198,18 @@ Pre-seeded with placeholder entries for the EUDI dev hostnames. Replace with the
 issuer IDs and X.509 SHA-256 fingerprints you actually trust. An empty
 `x5c_sha256_fingerprints` array means "trust by identifier alone" — fine for early
 testing, not for production.
+
+Each entry also **requires** `signature_mechanism`, one of `"x5c"` or
+`"jwt_vc_issuer_metadata"`. It declares the single Issuer Signature Mechanism the wallet
+will accept for that issuer, and there is deliberately no fallback between the two:
+draft-ietf-oauth-sd-jwt-vc-11 §10.2 requires that an attacker cannot influence which
+verification method applies to a given `iss`, so the choice is the wallet operator's and
+is never inferred from the JOSE header. An entry that omits the field fails the asset
+parse at startup — a missing mechanism is an unanswered policy question, not a default.
+
+`jwk_thumbprints` is the key-set analogue of `x5c_sha256_fingerprints`: RFC 7638 SHA-256
+thumbprints of the individual keys accepted under `jwt_vc_issuer_metadata`. Empty means
+"trust the whole published key set", with the same caveat as an empty fingerprint list.
 
 ### OAuth redirect — `AndroidManifest.xml`, `IssuanceClient`
 
@@ -292,7 +304,7 @@ Same flow; pick the mDL credential on the consent screen.
 
 ## Project layout
 
-Single `:app` module, 99 Kotlin source files:
+Single `:app` module, 111 Kotlin source files:
 
 ```text
 app/src/main/java/dev/digitallabor/elpaso/wallet/
@@ -310,7 +322,9 @@ app/src/main/java/dev/digitallabor/elpaso/wallet/
 │   ├── network/            Ktor HttpClient factory (secret redaction)
 │   ├── settings/           SettingsRepository, ThemePreference, LanguagePreference,
 │   │                       MetadataCacheTtl, LocaleApplier
-│   └── trust/              TrustListService
+│   └── trust/              TrustListService (+ per-issuer signature-mechanism policy),
+│                           IssuerSignedJwt, CredentialSignatureVerifier,
+│                           JwtVcIssuerMetadataClient + SSRF guard, issuer key-set cache
 ├── issuance/               OpenID4VCI driver, OAuth redirect activity, metadata
 │                           client + verifier + refresher, proofs/
 ├── presentation/           OpenID4VP driver, DcqlMatcher, builder/ (SD-JWT + mdoc),
@@ -379,14 +393,17 @@ This is a production-leaning proof of concept. These are the sharp edges:
   payment entry produced an entry with no merchant, no amount, no title and no claims,
   which the picker drops — so the wallet vanished from the picker entirely while the
   QR/deeplink path kept working.
-- **Issuer-signed metadata is verified only via `x5c`, never via a key set.**
-  paso-proof-metadata.md §5.3/§7 step 3 allow the signing key to be identified by a `kid`
-  resolved through the credential format's issuer-key mechanism (e.g. SD-JWT-VC issuer
-  metadata) when the issuer publishes no certificate chain. Both
-  `CredentialMetadataVerifier` and `AdhocTransactionMetadataVerifier` require an `x5c`
-  header and cross-bind against the credential's own chain; a `kid`-only JWT is rejected.
-  Issuers whose credentials carry `x5c` — the case this wallet was built against — are
-  unaffected.
+- **mdoc credentials are stored without verifying the MSO signature.** The issuance gate
+  verifies an SD-JWT VC's issuer-signed JWT under the mechanism its issuer's trust-list
+  entry permits, and refuses to store one that fails. `mso_mdoc` has no equivalent check:
+  an ISO 18013-5 MSO is COSE_Sign1 over CBOR, a different primitive from JWS, and
+  `MdocDeviceResponseBuilder` reads `issuerAuth[2]` without validating it. The asymmetry
+  is deliberate and tracked, not overlooked.
+- **A credential is verified once, at issuance, and never again.** Nothing re-checks it at
+  presentation, so a credential stays usable after its issuer's signing key is rotated out
+  or revoked. Closing this needs credential status/revocation (also unimplemented) and an
+  answer for what the UI shows when a stored credential stops verifying; both are out of
+  scope of the verification work rather than forgotten by it.
 - **Deferred issuance is not implemented.** `SubmissionOutcome.Deferred` raises an
   error. Supporting it means persisting the deferred-issuance context and polling,
   most likely via `WorkManager`.
