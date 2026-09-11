@@ -25,7 +25,19 @@ import java.util.Locale
  */
 class TransactionDataValidatorValueTypeTest {
     private val v = TransactionDataValidator()
-    private val sel = LocaleSelection("en", Locale.ENGLISH)
+
+    /** Real §4 selection, then validation — the same order the consent screen uses. */
+    private fun validate(
+        md: TransactionDataTypeMetadata,
+        payload: kotlinx.serialization.json.JsonObject,
+    ): ValidationResult {
+        val selection =
+            LocaleSelector.select(md, listOf(Locale.ENGLISH))
+                ?: return ValidationResult.Incompatible(
+                    IncompatibilityReason(IncompatibilityReason.Code.NO_LOCALE_MATCH, "no locale matched"),
+                )
+        return v.validate(md, payload, selection)
+    }
 
     private fun md(
         valueType: String?,
@@ -64,7 +76,7 @@ class TransactionDataValidatorValueTypeTest {
     fun unsupportedValueTypeIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
-            reasonOf(v.validate(md("custom_type_we_dont_know"), payloadOf(JsonPrimitive("hello")), sel)),
+            reasonOf(validate(md("custom_type_we_dont_know"), payloadOf(JsonPrimitive("hello")))),
         )
     }
 
@@ -72,7 +84,7 @@ class TransactionDataValidatorValueTypeTest {
     fun unsupportedTemplateInnerTypeIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
-            reasonOf(v.validate(md("template:not_a_type"), payloadOf(JsonPrimitive("x")), sel)),
+            reasonOf(validate(md("template:not_a_type"), payloadOf(JsonPrimitive("x")))),
         )
     }
 
@@ -88,7 +100,7 @@ class TransactionDataValidatorValueTypeTest {
             )
         assertEquals(
             IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
-            reasonOf(v.validate(meta, payloadOf(JsonPrimitive(true)), sel)),
+            reasonOf(validate(meta, payloadOf(JsonPrimitive(true)))),
         )
     }
 
@@ -99,7 +111,7 @@ class TransactionDataValidatorValueTypeTest {
         // §3.1: "If omitted, the value is treated as plain text and MUST be a string."
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md(null), payloadOf(JsonPrimitive(42)), sel)),
+            reasonOf(validate(md(null), payloadOf(JsonPrimitive(42)))),
         )
     }
 
@@ -107,7 +119,7 @@ class TransactionDataValidatorValueTypeTest {
     fun nonBooleanUnderBooleanIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("boolean"), payloadOf(JsonPrimitive("yes")), sel)),
+            reasonOf(validate(md("boolean"), payloadOf(JsonPrimitive("yes")))),
         )
     }
 
@@ -115,7 +127,7 @@ class TransactionDataValidatorValueTypeTest {
     fun badFrequencyCodeIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("frequency"), payloadOf(JsonPrimitive("XXXX")), sel)),
+            reasonOf(validate(md("frequency"), payloadOf(JsonPrimitive("XXXX")))),
         )
     }
 
@@ -123,7 +135,7 @@ class TransactionDataValidatorValueTypeTest {
     fun malformedIsoDateIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("iso_date"), payloadOf(JsonPrimitive("25/08/2026")), sel)),
+            reasonOf(validate(md("iso_date"), payloadOf(JsonPrimitive("25/08/2026")))),
         )
     }
 
@@ -131,7 +143,7 @@ class TransactionDataValidatorValueTypeTest {
     fun malformedIsoDateTimeIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("iso_date_time"), payloadOf(JsonPrimitive("yesterday")), sel)),
+            reasonOf(validate(md("iso_date_time"), payloadOf(JsonPrimitive("yesterday")))),
         )
     }
 
@@ -139,7 +151,7 @@ class TransactionDataValidatorValueTypeTest {
     fun unknownCurrencyCodeIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("iso_currency"), payloadOf(JsonPrimitive("XYZZY")), sel)),
+            reasonOf(validate(md("iso_currency"), payloadOf(JsonPrimitive("XYZZY")))),
         )
     }
 
@@ -147,7 +159,7 @@ class TransactionDataValidatorValueTypeTest {
     fun malformedCurrencyAmountIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("iso_currency_amount"), payloadOf(JsonPrimitive("49.99EUR")), sel)),
+            reasonOf(validate(md("iso_currency_amount"), payloadOf(JsonPrimitive("49.99EUR")))),
         )
     }
 
@@ -156,7 +168,7 @@ class TransactionDataValidatorValueTypeTest {
         // §3 `label_only`: "The claim MUST NOT be `mandatory`."
         assertEquals(
             IncompatibilityReason.Code.VALUE_TYPE_MISMATCH,
-            reasonOf(v.validate(md("label_only", mandatory = true), payloadOf(JsonPrimitive("x")), sel)),
+            reasonOf(validate(md("label_only", mandatory = true), payloadOf(JsonPrimitive("x")))),
         )
     }
 
@@ -166,13 +178,13 @@ class TransactionDataValidatorValueTypeTest {
     fun nonHttpsUrlIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.URL_NOT_HTTPS,
-            reasonOf(v.validate(md("url"), payloadOf(JsonPrimitive("http://insecure.example")), sel)),
+            reasonOf(validate(md("url"), payloadOf(JsonPrimitive("http://insecure.example")))),
         )
     }
 
     @Test
     fun httpsUrlProducesALinkShowingTheFullUrl() {
-        val value = valueOf(v.validate(md("url"), payloadOf(JsonPrimitive("https://example.test/a?b=c")), sel))
+        val value = valueOf(validate(md("url"), payloadOf(JsonPrimitive("https://example.test/a?b=c"))))
         // §3 forbids replacing or obscuring the URL with alternative text.
         assertEquals(RenderedValue.Link("https://example.test/a?b=c", "https://example.test/a?b=c"), value)
     }
@@ -180,7 +192,7 @@ class TransactionDataValidatorValueTypeTest {
     @Test
     fun confusableHostIsDisplayedAsPunycode() {
         // §3 SHOULD: mitigate homograph confusion by showing an IDN in punycode form.
-        val value = valueOf(v.validate(md("url"), payloadOf(JsonPrimitive("https://exämple.test/x")), sel))
+        val value = valueOf(validate(md("url"), payloadOf(JsonPrimitive("https://exämple.test/x"))))
         val link = value as RenderedValue.Link
         assertEquals("https://exämple.test/x", link.href)
         assertTrue("expected a punycode host in the displayed text, got '${link.display}'", link.display.contains("xn--"))
@@ -192,7 +204,7 @@ class TransactionDataValidatorValueTypeTest {
     fun directionalOverrideInAPayloadValueIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.PAYLOAD_DIRECTIONAL_OVERRIDE,
-            reasonOf(v.validate(md(null), payloadOf(JsonPrimitive("100\u202E00")), sel)),
+            reasonOf(validate(md(null), payloadOf(JsonPrimitive("100\u202E00")))),
         )
     }
 
@@ -200,7 +212,7 @@ class TransactionDataValidatorValueTypeTest {
     fun unterminatedIsolateInAPayloadValueIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.PAYLOAD_DIRECTIONAL_OVERRIDE,
-            reasonOf(v.validate(md(null), payloadOf(JsonPrimitive("a\u2066b")), sel)),
+            reasonOf(validate(md(null), payloadOf(JsonPrimitive("a\u2066b")))),
         )
     }
 
@@ -208,38 +220,38 @@ class TransactionDataValidatorValueTypeTest {
 
     @Test
     fun validCurrencyAmountIsCompatible() {
-        val value = valueOf(v.validate(md("iso_currency_amount"), payloadOf(JsonPrimitive("49.99 EUR")), sel))
+        val value = valueOf(validate(md("iso_currency_amount"), payloadOf(JsonPrimitive("49.99 EUR"))))
         val text = (value as RenderedValue.Text).content as FormattedText.Plain
         assertTrue("expected a formatted amount, got '${text.text}'", text.text.contains("49"))
     }
 
     @Test
     fun validBooleanIsLocalised() {
-        val value = valueOf(v.validate(md("boolean"), payloadOf(JsonPrimitive(true)), sel))
+        val value = valueOf(validate(md("boolean"), payloadOf(JsonPrimitive(true))))
         assertEquals(RenderedValue.Text(FormattedText.Plain("Yes")), value)
     }
 
     @Test
     fun validFrequencyIsLocalised() {
-        val value = valueOf(v.validate(md("frequency"), payloadOf(JsonPrimitive("MNTH")), sel))
+        val value = valueOf(validate(md("frequency"), payloadOf(JsonPrimitive("MNTH"))))
         assertEquals(RenderedValue.Text(FormattedText.Plain("Monthly")), value)
     }
 
     @Test
     fun miniMarkdownValueKeepsItsSource() {
-        val value = valueOf(v.validate(md("mini_markdown"), payloadOf(JsonPrimitive("**bold**")), sel))
+        val value = valueOf(validate(md("mini_markdown"), payloadOf(JsonPrimitive("**bold**"))))
         assertEquals(RenderedValue.Text(FormattedText.Markdown("**bold**")), value)
     }
 
     @Test
     fun labelOnlyProducesNoValue() {
-        val value = valueOf(v.validate(md("label_only"), payloadOf(JsonPrimitive("ignored")), sel))
+        val value = valueOf(validate(md("label_only"), payloadOf(JsonPrimitive("ignored"))))
         assertEquals(RenderedValue.LabelOnly, value)
     }
 
     @Test
     fun plainStringIsCompatible() {
-        val value = valueOf(v.validate(md(null), payloadOf(JsonPrimitive("Merchant Ltd")), sel))
+        val value = valueOf(validate(md(null), payloadOf(JsonPrimitive("Merchant Ltd"))))
         assertEquals(RenderedValue.Text(FormattedText.Plain("Merchant Ltd")), value)
     }
 }

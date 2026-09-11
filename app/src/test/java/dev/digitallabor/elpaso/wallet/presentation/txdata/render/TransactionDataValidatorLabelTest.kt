@@ -22,8 +22,20 @@ import java.util.Locale
  */
 class TransactionDataValidatorLabelTest {
     private val v = TransactionDataValidator()
-    private val sel = LocaleSelection("en", Locale.ENGLISH)
     private val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
+
+    /** Real §4 selection, then validation — the same order the consent screen uses. */
+    private fun validate(
+        md: TransactionDataTypeMetadata,
+        payload: kotlinx.serialization.json.JsonObject,
+    ): ValidationResult {
+        val selection =
+            LocaleSelector.select(md, listOf(Locale.ENGLISH))
+                ?: return ValidationResult.Incompatible(
+                    IncompatibilityReason(IncompatibilityReason.Code.NO_LOCALE_MATCH, "no locale matched"),
+                )
+        return v.validate(md, payload, selection)
+    }
 
     private fun md(
         name: String,
@@ -64,7 +76,7 @@ class TransactionDataValidatorLabelTest {
 
     @Test
     fun claimNameAtExactlySixtyGraphemesIsAllowed() {
-        val r = v.validate(md("a".repeat(60)), payload, sel)
+        val r = validate(md("a".repeat(60)), payload)
         assertTrue("60 is the cap, not one past it — got $r", r is ValidationResult.Compatible)
     }
 
@@ -72,14 +84,14 @@ class TransactionDataValidatorLabelTest {
     fun claimNameOverSixtyGraphemesIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
-            reasonOf(v.validate(md("a".repeat(61)), payload, sel)),
+            reasonOf(validate(md("a".repeat(61)), payload)),
         )
     }
 
     @Test
     fun lengthIsCountedInGraphemesNotChars() {
         // 60 clusters of "e + combining acute" is 120 chars but conforms.
-        val r = v.validate(md("e\u0301".repeat(60)), payload, sel)
+        val r = validate(md("e\u0301".repeat(60)), payload)
         assertTrue("grapheme clusters, not chars, decide the cap — got $r", r is ValidationResult.Compatible)
     }
 
@@ -88,7 +100,7 @@ class TransactionDataValidatorLabelTest {
         val ui = UiLabels(transactionTitle = listOf(LocalizedLabel("en", "t".repeat(101), null)))
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
-            reasonOf(v.validate(withUiLabels(ui), payload, sel)),
+            reasonOf(validate(withUiLabels(ui), payload)),
         )
     }
 
@@ -97,7 +109,7 @@ class TransactionDataValidatorLabelTest {
         val ui = UiLabels(affirmativeActionLabel = listOf(LocalizedLabel("en", "c".repeat(41), null)))
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
-            reasonOf(v.validate(withUiLabels(ui), payload, sel)),
+            reasonOf(validate(withUiLabels(ui), payload)),
         )
     }
 
@@ -106,7 +118,7 @@ class TransactionDataValidatorLabelTest {
         val ui = UiLabels(denialActionLabel = listOf(LocalizedLabel("en", "d".repeat(41), null)))
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
-            reasonOf(v.validate(withUiLabels(ui), payload, sel)),
+            reasonOf(validate(withUiLabels(ui), payload)),
         )
     }
 
@@ -115,7 +127,7 @@ class TransactionDataValidatorLabelTest {
         val ui = UiLabels(securityHint = listOf(LocalizedLabel("en", "h".repeat(161), null)))
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
-            reasonOf(v.validate(withUiLabels(ui), payload, sel)),
+            reasonOf(validate(withUiLabels(ui), payload)),
         )
     }
 
@@ -125,7 +137,7 @@ class TransactionDataValidatorLabelTest {
     fun controlCharInLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_CONTROL_CHAR,
-            reasonOf(v.validate(md("Amount\u0007"), payload, sel)),
+            reasonOf(validate(md("Amount\u0007"), payload)),
         )
     }
 
@@ -133,7 +145,7 @@ class TransactionDataValidatorLabelTest {
     fun newlineInLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_CONTROL_CHAR,
-            reasonOf(v.validate(md("Amount\ndue"), payload, sel)),
+            reasonOf(validate(md("Amount\ndue"), payload)),
         )
     }
 
@@ -141,7 +153,7 @@ class TransactionDataValidatorLabelTest {
     fun directionalOverrideInLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
-            reasonOf(v.validate(md("Amount\u202E"), payload, sel)),
+            reasonOf(validate(md("Amount\u202E"), payload)),
         )
     }
 
@@ -149,13 +161,13 @@ class TransactionDataValidatorLabelTest {
     fun unterminatedIsolateInLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
-            reasonOf(v.validate(md("Amount\u2066unclosed"), payload, sel)),
+            reasonOf(validate(md("Amount\u2066unclosed"), payload)),
         )
     }
 
     @Test
     fun properlyTerminatedIsolateIsAllowed() {
-        val r = v.validate(md("Amount \u2066LTR\u2069 due"), payload, sel)
+        val r = validate(md("Amount \u2066LTR\u2069 due"), payload)
         assertTrue("a balanced isolate is explicitly permitted — got $r", r is ValidationResult.Compatible)
     }
 
@@ -165,7 +177,7 @@ class TransactionDataValidatorLabelTest {
     fun imageDisplayTypeOnLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
-            reasonOf(v.validate(md("Logo", displayType = "image"), payload, sel)),
+            reasonOf(validate(md("Logo", displayType = "image"), payload)),
         )
     }
 
@@ -173,7 +185,7 @@ class TransactionDataValidatorLabelTest {
     fun urlDisplayTypeOnLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
-            reasonOf(v.validate(md("Link", displayType = "url"), payload, sel)),
+            reasonOf(validate(md("Link", displayType = "url"), payload)),
         )
     }
 
@@ -181,13 +193,13 @@ class TransactionDataValidatorLabelTest {
     fun labelOnlyDisplayTypeOnLabelIsIncompatible() {
         assertEquals(
             IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
-            reasonOf(v.validate(md("X", displayType = "label_only"), payload, sel)),
+            reasonOf(validate(md("X", displayType = "label_only"), payload)),
         )
     }
 
     @Test
     fun miniMarkdownDisplayTypeIsAllowed() {
-        val r = v.validate(md("**Amount**", displayType = "mini_markdown"), payload, sel)
+        val r = validate(md("**Amount**", displayType = "mini_markdown"), payload)
         assertTrue("mini_markdown is one of the two permitted label types — got $r", r is ValidationResult.Compatible)
         val label =
             (r as ValidationResult.Compatible)
@@ -199,7 +211,7 @@ class TransactionDataValidatorLabelTest {
 
     @Test
     fun absentDisplayTypeYieldsPlainLabel() {
-        val r = v.validate(md("Amount"), payload, sel)
+        val r = validate(md("Amount"), payload)
         val label =
             (r as ValidationResult.Compatible)
                 .plan.rows
@@ -215,7 +227,7 @@ class TransactionDataValidatorLabelTest {
         val ui = UiLabels(securityHint = listOf(LocalizedLabel("en", "Careful", "mini_markdown")))
         assertEquals(
             IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
-            reasonOf(v.validate(withUiLabels(ui), payload, sel)),
+            reasonOf(validate(withUiLabels(ui), payload)),
         )
     }
 
@@ -230,7 +242,7 @@ class TransactionDataValidatorLabelTest {
                 denialActionLabel = listOf(LocalizedLabel("en", "Cancel", null)),
                 securityHint = listOf(LocalizedLabel("en", "Never share this code", null)),
             )
-        val r = v.validate(withUiLabels(ui), payload, sel)
+        val r = validate(withUiLabels(ui), payload)
         val plan = (r as ValidationResult.Compatible).plan
         assertEquals(RenderedLabel(FormattedText.Plain("Approve payment")), plan.title)
         assertEquals(RenderedLabel(FormattedText.Plain("Confirm")), plan.affirmativeLabel)
@@ -258,7 +270,7 @@ class TransactionDataValidatorLabelTest {
                 put("amount", JsonPrimitive("x"))
                 put("internal", JsonPrimitive("opaque"))
             }
-        val plan = (v.validate(meta, p, sel) as ValidationResult.Compatible).plan
+        val plan = (validate(meta, p) as ValidationResult.Compatible).plan
         assertEquals(1, plan.rows.size)
         assertEquals(1, plan.totalItemCount)
     }

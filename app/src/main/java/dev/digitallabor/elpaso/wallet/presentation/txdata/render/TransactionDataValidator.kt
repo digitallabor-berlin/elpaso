@@ -51,7 +51,7 @@ class TransactionDataValidator(
     fun validate(
         metadata: TransactionDataTypeMetadata,
         payload: JsonObject,
-        selection: LocaleSelection,
+        selection: Selection,
     ): ValidationResult {
         structuralViolation(metadata)?.let { return it.asResult() }
         payloadViolation(metadata, payload)?.let { return it.asResult() }
@@ -63,26 +63,27 @@ class TransactionDataValidator(
     private fun buildPlan(
         metadata: TransactionDataTypeMetadata,
         payload: JsonObject,
-        selection: LocaleSelection,
+        selection: Selection,
     ): ValidationResult {
-        val ui = metadata.uiLabels
         val ctx = Ctx(metadata.claims, payload, selection.locale)
 
+        // Every label comes from the entry [selection] already matched. Re-picking one here
+        // would be exactly the mixed-language failure PaSO View §4 rules out.
         val title =
-            uiLabel(ui.transactionTitle, RenderLimits.TRANSACTION_TITLE_MAX, "transaction_title", selection, ctx)
+            uiLabel(selection, UiLabelKeys.TRANSACTION_TITLE, RenderLimits.TRANSACTION_TITLE_MAX, ctx)
                 .onBad { return it }
         val affirmative =
-            uiLabel(ui.affirmativeActionLabel, RenderLimits.AFFIRMATIVE_LABEL_MAX, "affirmative_action_label", selection, ctx)
+            uiLabel(selection, UiLabelKeys.AFFIRMATIVE_ACTION, RenderLimits.AFFIRMATIVE_LABEL_MAX, ctx)
                 .onBad { return it }
         val denial =
-            uiLabel(ui.denialActionLabel, RenderLimits.DENIAL_LABEL_MAX, "denial_action_label", selection, ctx)
+            uiLabel(selection, UiLabelKeys.DENIAL_ACTION, RenderLimits.DENIAL_LABEL_MAX, ctx)
                 .onBad { return it }
 
         // The hint is the one label the wallet may never reformat: §3.2 requires it be
         // displayed exactly as provided, and §3.3 forbids it carrying a `value_type` at
         // all. It is therefore a plain String in the plan, not a RenderedLabel — there is
         // no formatting decision left to represent.
-        val hintEntry = pickLabel(ui.securityHint, selection)
+        val hintEntry = selection.uiLabel[UiLabelKeys.SECURITY_HINT]
         if (hintEntry != null && hintEntry.valueType != null) {
             return reason(
                 IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
@@ -95,11 +96,11 @@ class TransactionDataValidator(
         }
 
         val rows = mutableListOf<RenderRow>()
-        for (claim in metadata.claims) {
-            // §3.1: a claim with no `display` array is an internal value "irrelevant to the
-            // user's consent", so it is not a rendered item and never reaches the screen.
-            if (claim.display.isEmpty()) continue
-            val display = pickDisplay(claim.display, selection) ?: continue
+        for ((index, claim) in metadata.claims.withIndex()) {
+            // Absent from the map means the claim has no `display` array — §3.1 makes that
+            // an internal value "irrelevant to the user's consent", so it is not a rendered
+            // item and never reaches the screen.
+            val display = selection.claimDisplay[index] ?: continue
 
             val where = "claim '${claim.path.renderKey()}'"
             val wildcards = claim.path.wildcardCount()
@@ -126,7 +127,7 @@ class TransactionDataValidator(
                 securityHint = hintEntry?.value,
                 affirmativeLabel = affirmative,
                 denialLabel = denial,
-                selectedLocaleTag = selection.localeTag,
+                selectedLocaleTag = selection.tag,
                 totalItemCount = rows.size + uiElementCount,
             ),
         )
@@ -164,16 +165,15 @@ class TransactionDataValidator(
     )
 
     private fun uiLabel(
-        entries: List<LocalizedLabel>,
+        selection: Selection,
+        key: String,
         max: Int,
-        where: String,
-        selection: LocaleSelection,
         ctx: Ctx,
     ): LabelOutcome {
-        val entry = pickLabel(entries, selection) ?: return LabelOutcome.Ok(null)
+        val entry = selection.uiLabel[key] ?: return LabelOutcome.Ok(null)
         // A ui_labels entry belongs to no claim, so it has no wildcard depth of its own:
         // it may only reference claims whose paths carry none.
-        return labelFrom(entry.value, entry.valueType, max, where, ctx, wildcards = 0)
+        return labelFrom(entry.value, entry.valueType, max, key, ctx, wildcards = 0)
     }
 
     /**
@@ -272,38 +272,6 @@ class TransactionDataValidator(
         } else {
             null
         }
-    }
-
-    // --- Locale matching (interim; PaSO View §4 replaces this wholesale) ---
-
-    private fun pickDisplay(
-        entries: List<ClaimDisplay>,
-        selection: LocaleSelection,
-    ): ClaimDisplay? = pickBy(entries, selection) { it.locale }
-
-    private fun pickLabel(
-        entries: List<LocalizedLabel>,
-        selection: LocaleSelection,
-    ): LocalizedLabel? = pickBy(entries, selection) { it.locale }
-
-    /**
-     * Exact tag, then language, then the entry without a locale.
-     *
-     * Deliberately returns null rather than falling back to the first entry: §4 makes "no
-     * match" a real outcome that excludes the credential, and a first-entry fallback would
-     * silently render one locale's label inside another locale's screen.
-     */
-    private fun <T> pickBy(
-        entries: List<T>,
-        selection: LocaleSelection,
-        tagOf: (T) -> String?,
-    ): T? {
-        if (entries.isEmpty()) return null
-        val tag = selection.locale.toLanguageTag()
-        val language = selection.locale.language
-        return entries.firstOrNull { tagOf(it).equals(tag, ignoreCase = true) }
-            ?: entries.firstOrNull { tagOf(it)?.substringBefore('-').equals(language, ignoreCase = true) }
-            ?: entries.firstOrNull { tagOf(it).isNullOrBlank() }
     }
 
     private fun rawText(value: JsonElement?): String = (value as? JsonPrimitive)?.contentOrNull.orEmpty()

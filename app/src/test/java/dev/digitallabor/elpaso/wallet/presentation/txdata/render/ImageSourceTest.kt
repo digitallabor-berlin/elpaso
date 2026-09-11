@@ -107,7 +107,19 @@ class ImageSourceTest {
     // --- Validator image branch ---
 
     private val v = TransactionDataValidator()
-    private val sel = LocaleSelection("en", Locale.ENGLISH)
+
+    /** Real §4 selection, then validation — the same order the consent screen uses. */
+    private fun validate(
+        md: TransactionDataTypeMetadata,
+        payload: kotlinx.serialization.json.JsonObject,
+    ): ValidationResult {
+        val selection =
+            LocaleSelector.select(md, listOf(Locale.ENGLISH))
+                ?: return ValidationResult.Incompatible(
+                    IncompatibilityReason(IncompatibilityReason.Code.NO_LOCALE_MATCH, "no locale matched"),
+                )
+        return v.validate(md, payload, selection)
+    }
 
     private fun imgMd(path: List<String?> = listOf("logo")) =
         TransactionDataTypeMetadata(
@@ -143,7 +155,7 @@ class ImageSourceTest {
         // §3: a non-data URL "MUST contain a sibling claim at the same path suffixed with
         // `#integrity`". Without it there is nothing to verify the fetched bytes against.
         val payload = buildJsonObject { put("logo", JsonPrimitive("https://cdn.test/x.png")) }
-        assertEquals(IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING, reasonOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING, reasonOf(validate(imgMd(), payload)))
     }
 
     @Test
@@ -153,7 +165,7 @@ class ImageSourceTest {
                 put("logo", JsonPrimitive("https://cdn.test/x.png"))
                 put("logo#integrity", JsonPrimitive("not-an-sri-hash"))
             }
-        assertEquals(IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING, reasonOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING, reasonOf(validate(imgMd(), payload)))
     }
 
     @Test
@@ -163,7 +175,7 @@ class ImageSourceTest {
                 put("logo", JsonPrimitive("http://cdn.test/x.png"))
                 put("logo#integrity", JsonPrimitive("sha256-AAAA"))
             }
-        assertEquals(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, reasonOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, reasonOf(validate(imgMd(), payload)))
     }
 
     @Test
@@ -174,13 +186,13 @@ class ImageSourceTest {
                 put("logo", JsonPrimitive("https://cdn.test/x.png"))
                 put("logo#integrity", JsonPrimitive(integrity))
             }
-        assertEquals(ImageSource.Remote("https://cdn.test/x.png", integrity), imageOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(ImageSource.Remote("https://cdn.test/x.png", integrity), imageOf(validate(imgMd(), payload)))
     }
 
     @Test
     fun dataUrlImageProducesInlineBytes() {
         val payload = buildJsonObject { put("logo", JsonPrimitive("data:image/png;base64,iVBORw0KGgo=")) }
-        val source = imageOf(v.validate(imgMd(), payload, sel))
+        val source = imageOf(validate(imgMd(), payload))
         assertTrue("a data URL needs no network and must arrive as bytes", source is ImageSource.Inline)
         assertEquals("image/png", (source as ImageSource.Inline).mediaType)
     }
@@ -188,7 +200,7 @@ class ImageSourceTest {
     @Test
     fun malformedDataUrlIsIncompatible() {
         val payload = buildJsonObject { put("logo", JsonPrimitive("data:image/png;base64,!!!")) }
-        assertEquals(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, reasonOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, reasonOf(validate(imgMd(), payload)))
     }
 
     @Test
@@ -197,7 +209,7 @@ class ImageSourceTest {
         // decoding work is done on behalf of a verifier.
         val big = Base64.getEncoder().encodeToString(ByteArray(RenderLimits.IMAGE_MAX_ENCODED_BYTES.toInt() + 1))
         val payload = buildJsonObject { put("logo", JsonPrimitive("data:image/png;base64,$big")) }
-        assertEquals(IncompatibilityReason.Code.IMAGE_TOO_LARGE, reasonOf(v.validate(imgMd(), payload, sel)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_TOO_LARGE, reasonOf(validate(imgMd(), payload)))
     }
 
     @Test
@@ -213,7 +225,7 @@ class ImageSourceTest {
                     },
                 )
             }
-        val r = v.validate(imgMd(listOf("brand", "logo")), payload, sel)
+        val r = validate(imgMd(listOf("brand", "logo")), payload)
         assertEquals(ImageSource.Remote("https://cdn.test/x.png", integrity), imageOf(r))
     }
 }

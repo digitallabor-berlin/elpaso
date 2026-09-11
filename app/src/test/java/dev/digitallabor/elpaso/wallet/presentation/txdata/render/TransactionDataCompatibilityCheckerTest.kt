@@ -20,7 +20,6 @@ import java.util.Locale
  */
 class TransactionDataCompatibilityCheckerTest {
     private val checker = TransactionDataCompatibilityChecker(TransactionDataValidator())
-    private val sel = LocaleSelection("en", Locale.ENGLISH)
 
     @Test
     fun compatibleEntryProducesAPlanWithRowsAndLabels() {
@@ -39,7 +38,7 @@ class TransactionDataCompatibilityCheckerTest {
             )
         val payload = buildJsonObject { put("amount", JsonPrimitive("49.99 EUR")) }
 
-        val r = checker.check(md, payload, sel)
+        val r = checker.check(md, payload, listOf(Locale.ENGLISH))
         assertTrue("expected Compatible, got $r", r is ValidationResult.Compatible)
         val plan = (r as ValidationResult.Compatible).plan
         assertTrue("a displayable claim must produce a row", plan.rows.isNotEmpty())
@@ -66,7 +65,7 @@ class TransactionDataCompatibilityCheckerTest {
             )
         val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
 
-        val r = checker.check(md, payload, sel)
+        val r = checker.check(md, payload, listOf(Locale.ENGLISH))
         assertTrue("expected Incompatible, got $r", r is ValidationResult.Incompatible)
         assertEquals(
             IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
@@ -95,7 +94,7 @@ class TransactionDataCompatibilityCheckerTest {
                 put("second", JsonPrimitive("2"))
             }
 
-        val plan = (checker.check(md, payload, sel) as ValidationResult.Compatible).plan
+        val plan = (checker.check(md, payload, listOf(Locale.ENGLISH)) as ValidationResult.Compatible).plan
         assertEquals(
             listOf(RenderedLabel(FormattedText.Plain("Second")), RenderedLabel(FormattedText.Plain("First"))),
             plan.rows.map { it.label },

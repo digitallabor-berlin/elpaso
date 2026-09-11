@@ -87,7 +87,7 @@ import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionDataBlock
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
 import dev.digitallabor.elpaso.wallet.presentation.txdata.plainText
-import dev.digitallabor.elpaso.wallet.presentation.txdata.render.LocaleSelection
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.LocaleSelector
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderPlan
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataCompatibilityChecker
@@ -553,12 +553,14 @@ private fun ResolvedContent(
         // One incompatible entry refuses the whole request: the user consents once, to the
         // request as a whole, so rendering the rest and dropping this one would misrepresent
         // what is being approved.
-        val selection = LocaleSelection(locale.toLanguageTag(), locale)
+        // PaSO View §4 takes an ordered list, not a single locale: the wallet tries each
+        // language in turn and only settles on one that every display array can serve.
+        val priority = LocaleSelector.localePriorityList(listOf(locale), Locale.ENGLISH)
         val validated = mutableMapOf<String, RenderPlan>()
         for (entry in resolved.transactionData) {
             val metadata = byEntry[entry.raw] ?: continue
             val payload = entry.payloadScope ?: continue
-            when (val result = compatibilityChecker.check(metadata, payload, selection)) {
+            when (val result = compatibilityChecker.check(metadata, payload, priority)) {
                 is ValidationResult.Incompatible -> {
                     // The reason code is logged, never shown: a verifier must not learn
                     // which of its labels tripped which limit.

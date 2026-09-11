@@ -1,7 +1,5 @@
 package dev.digitallabor.elpaso.wallet.presentation.txdata.render
 
-import java.util.Locale
-
 /**
  * The vocabulary shared by the whole strict-rendering pipeline.
  *
@@ -196,16 +194,3 @@ sealed interface ValidationResult {
         val reason: IncompatibilityReason,
     ) : ValidationResult
 }
-
-/**
- * A single chosen locale, the minimum contract the validator needs.
- *
- * This is a placeholder for the real PaSO View §4 selection — "match every display array
- * or move to the next locale, and exclude the credential if none matches" — which arrives
- * with `LocaleSelector`. Keeping it as its own type means the swap is a rename, not a
- * rewrite of every call site.
- */
-data class LocaleSelection(
-    val localeTag: String,
-    val locale: Locale,
-)

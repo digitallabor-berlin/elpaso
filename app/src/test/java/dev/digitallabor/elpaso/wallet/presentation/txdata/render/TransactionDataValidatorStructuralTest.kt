@@ -20,7 +20,22 @@ import java.util.Locale
  */
 class TransactionDataValidatorStructuralTest {
     private val v = TransactionDataValidator()
-    private val sel = LocaleSelection("en", Locale.ENGLISH)
+
+    /**
+     * Runs the real PaSO View §4 selection before validating, so these tests exercise the
+     * same two-step path the consent screen does rather than a hand-built shortcut.
+     */
+    private fun validate(
+        md: TransactionDataTypeMetadata,
+        payload: kotlinx.serialization.json.JsonObject,
+    ): ValidationResult {
+        val selection =
+            LocaleSelector.select(md, listOf(Locale.ENGLISH))
+                ?: return ValidationResult.Incompatible(
+                    IncompatibilityReason(IncompatibilityReason.Code.NO_LOCALE_MATCH, "no locale matched"),
+                )
+        return v.validate(md, payload, selection)
+    }
 
     private fun claim(
         path: List<String?>,
@@ -47,7 +62,7 @@ class TransactionDataValidatorStructuralTest {
         val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
         assertEquals(
             IncompatibilityReason.Code.DUPLICATE_CLAIM_PATH,
-            reasonOf(v.validate(md, payload, sel)),
+            reasonOf(validate(md, payload)),
         )
     }
 
@@ -57,7 +72,7 @@ class TransactionDataValidatorStructuralTest {
         val payload = buildJsonObject { (0..100).forEach { put("f$it", JsonPrimitive("v")) } }
         assertEquals(
             IncompatibilityReason.Code.TOO_MANY_CLAIMS,
-            reasonOf(v.validate(TransactionDataTypeMetadata(claims, UiLabels()), payload, sel)),
+            reasonOf(validate(TransactionDataTypeMetadata(claims, UiLabels()), payload)),
         )
     }
 
@@ -83,7 +98,7 @@ class TransactionDataValidatorStructuralTest {
         val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
         assertEquals(
             IncompatibilityReason.Code.DUPLICATE_LOCALE,
-            reasonOf(v.validate(md, payload, sel)),
+            reasonOf(validate(md, payload)),
         )
     }
 
@@ -109,7 +124,7 @@ class TransactionDataValidatorStructuralTest {
         val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
         assertEquals(
             IncompatibilityReason.Code.MULTIPLE_DEFAULT_LOCALE,
-            reasonOf(v.validate(md, payload, sel)),
+            reasonOf(validate(md, payload)),
         )
     }
 
@@ -123,7 +138,7 @@ class TransactionDataValidatorStructuralTest {
             }
         assertEquals(
             IncompatibilityReason.Code.PAYLOAD_FIELD_UNCOVERED,
-            reasonOf(v.validate(md, payload, sel)),
+            reasonOf(validate(md, payload)),
         )
     }
 
@@ -142,7 +157,7 @@ class TransactionDataValidatorStructuralTest {
             }
         assertEquals(
             IncompatibilityReason.Code.PAYLOAD_FIELD_UNCOVERED,
-            reasonOf(v.validate(md, payload, sel)),
+            reasonOf(validate(md, payload)),
         )
     }
 
@@ -168,7 +183,7 @@ class TransactionDataValidatorStructuralTest {
                 put("logo", JsonPrimitive("data:image/png;base64,iVBORw0KGgo="))
                 put("logo#integrity", JsonPrimitive("sha256-AAAA"))
             }
-        val r = v.validate(md, payload, sel)
+        val r = validate(md, payload)
         val uncovered =
             r is ValidationResult.Incompatible &&
                 r.reason.code == IncompatibilityReason.Code.PAYLOAD_FIELD_UNCOVERED
@@ -192,7 +207,7 @@ class TransactionDataValidatorStructuralTest {
             )
         assertEquals(
             IncompatibilityReason.Code.MISSING_REQUIRED_FIELD,
-            reasonOf(v.validate(md, buildJsonObject { }, sel)),
+            reasonOf(validate(md, buildJsonObject { })),
         )
     }
 
@@ -200,7 +215,7 @@ class TransactionDataValidatorStructuralTest {
     fun conformingMetadataAndPayloadIsCompatible() {
         val md = TransactionDataTypeMetadata(claims = listOf(claim(listOf("amount"))), uiLabels = UiLabels())
         val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
-        val r = v.validate(md, payload, sel)
+        val r = validate(md, payload)
         assertTrue("expected Compatible, got $r", r is ValidationResult.Compatible)
         assertEquals("en", (r as ValidationResult.Compatible).plan.selectedLocaleTag)
     }
