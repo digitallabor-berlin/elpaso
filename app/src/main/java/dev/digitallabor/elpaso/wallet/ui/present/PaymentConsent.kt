@@ -52,8 +52,8 @@ import dev.digitallabor.elpaso.wallet.domain.model.PassArt
 import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
-import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
 import dev.digitallabor.elpaso.wallet.presentation.txdata.formatIsoCurrencyAmount
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
 import dev.digitallabor.elpaso.wallet.ui.common.TrustWarningCard
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -192,9 +192,9 @@ internal fun PaymentConsentContent(
     credentialsById: Map<String, Credential>,
     pagerState: PagerState,
     locale: Locale,
-    authorizeLabel: ValueTypeFormatters.Formatted?,
+    authorizeLabel: RenderedLabel?,
     authorizeFallback: String,
-    denialLabel: ValueTypeFormatters.Formatted?,
+    denialLabel: RenderedLabel?,
     onAuthorize: () -> Unit,
     onCancel: () -> Unit,
 ) {

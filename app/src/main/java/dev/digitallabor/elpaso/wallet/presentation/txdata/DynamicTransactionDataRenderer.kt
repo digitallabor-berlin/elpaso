@@ -17,13 +17,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -32,44 +32,38 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import dev.digitallabor.elpaso.wallet.R
-import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
-import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
-import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
-import dev.digitallabor.elpaso.wallet.domain.model.pick
-import dev.digitallabor.elpaso.wallet.presentation.txdata.render.renderKey
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import java.util.Locale
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.FormattedText
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.ImageSource
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderPlan
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderRow
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedValue
 
 /**
- * Issuer-driven consent block for a `transaction_data` entry, rendered from a
- * verified [TransactionDataTypeMetadata] per the PaSO View spec (paso-view.md §2).
- * Used whenever the matched credential carries a verified signed metadata JWT whose
- * `transaction_data_types` covers the verifier-supplied entry type.
+ * Issuer-driven consent block for a `transaction_data` entry.
  *
- * Rendering rules:
- * - `transaction_title` is the heading; falls back to a generic string when absent.
- * - `security_hint`, when present, MUST be displayed verbatim — never localized by
- *   the wallet (spec §3.2 of the metadata module). It is rendered as a SIBLING of the
- *   data card, not a row inside it: a hint qualifies the transaction rather than being
- *   one more field of it (see [SecurityHintBanner]).
- * - Each claim with a `display` array is rendered as `label: value` in CLAIMS-ARRAY
- *   order (not payload-key order) per spec §2.
- * - `value_type` and `display_type` are resolved by [ValueTypeFormatters]; the
- *   sealed `Formatted` result selects how the value is displayed (plain text, link,
- *   image, mini-markdown, or label-only).
+ * **This composable makes no compatibility decisions.** It takes a [RenderPlan], which is
+ * by construction already conformant: every label is within its length cap and free of
+ * prohibited characters, every value matched its declared `value_type`, and one locale
+ * matched across every display array. PaSO Core §7.4.2 settles all of that during entry
+ * selection, before the screen exists — an entry that failed never reaches here, it
+ * reaches the refusal screen instead.
+ *
+ * That division is why the old in-composable formatting is gone. A renderer that could
+ * still discover a problem mid-draw has only two options, both forbidden by PaSO View §2:
+ * degrade the content, or draw a broken screen.
+ *
+ * Layout notes that survived the rewrite:
+ * - `transaction_title` is lifted to the app bar by the screen, so it is deliberately not
+ *   repeated inside the card.
+ * - The security hint is a *sibling* of the data card, not a row inside it: a hint
+ *   qualifies the whole transaction rather than being one more field of it.
  */
 @Composable
 fun DynamicTransactionDataBlock(
-    item: TransactionData,
-    metadata: TransactionDataTypeMetadata,
-    locale: Locale,
+    plan: RenderPlan,
     modifier: Modifier = Modifier,
 ) {
-    val payload = item.payloadScope
-    // The hint is scoped to THIS transaction_data entry, so it stays inside this
-    // composable (several entries may each carry their own) — but as a peer of the
-    // data card rather than a nested one.
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -86,99 +80,61 @@ fun DynamicTransactionDataBlock(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // transaction_title is the SCREEN title per paso-proof-metadata.md §3.2 —
-                // lifted to the app bar by PresentScreen. We deliberately don't repeat it
-                // inside this card so the user doesn't see the same string twice.
-
-                if (payload != null) {
-                    metadata.claims
-                        .filter { it.display.isNotEmpty() }
-                        .forEach { claim ->
-                            ClaimRow(
-                                claim = claim,
-                                payload = payload,
-                                claimsArray = metadata.claims,
-                                locale = locale,
-                            )
-                        }
-                }
+                plan.rows.forEach { row -> ClaimRow(row) }
             }
         }
 
-        metadata.uiLabels.securityHint.pick(locale)?.let { hint ->
-            SecurityHintBanner(formatLabel(hint, metadata, payload, locale))
-        }
+        plan.securityHint?.let { SecurityHintBanner(it) }
     }
 }
 
+/**
+ * One labelled value, in the order the issuer's `claims` array declared it (PaSO View §2
+ * requires claims-array order, not payload-key order — the payload is the verifier's to
+ * arrange).
+ */
 @Composable
-private fun ClaimRow(
-    claim: ClaimMetadata,
-    payload: JsonObject,
-    claimsArray: List<ClaimMetadata>,
-    locale: Locale,
-) {
-    val display = claim.display.pick(locale) ?: return
-    val rawLabel = display.name ?: claim.path.renderKey()
-    // display_type formats the LABEL using the same rules as value_type — spec §3.
-    val labelFormatted =
-        ValueTypeFormatters.format(
-            value = kotlinx.serialization.json.JsonPrimitive(rawLabel),
-            valueType = display.displayType,
-            locale = locale,
-            resolveTemplate = { template, innerType ->
-                resolveTemplate(template, innerType, claimsArray, payload, locale)
-            },
-        )
-    // BRIDGE (temporary): `path` is now `List<String?>` with `null` meaning an array
-    // wildcard, but this composable predates wildcard support and resolves object keys
-    // only. Dropping the wildcards keeps existing non-wildcard metadata rendering exactly
-    // as before. The whole composable is replaced by the pre-validated RenderPlan, which
-    // is where wildcard expansion actually lands — this bridge dies with it.
-    val rawValueElement = ValueTypeFormatters.resolvePath(payload, claim.path.filterNotNull())
-    val valueFormatted =
-        ValueTypeFormatters.format(
-            value =
-                if (claim.valueType?.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX) == true) {
-                    kotlinx.serialization.json.JsonPrimitive(
-                        ValueTypeFormatters.asString(rawValueElement ?: kotlinx.serialization.json.JsonNull),
-                    )
-                } else {
-                    rawValueElement
-                },
-            valueType = claim.valueType,
-            locale = locale,
-            resolveTemplate = { template, innerType ->
-                resolveTemplate(template, innerType, claimsArray, payload, locale)
-            },
-            siblingLookup = { rel -> resolveSibling(payload, claim.path.filterNotNull(), rel) },
-        )
-
+private fun ClaimRow(row: RenderRow) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        FormattedAsText(
-            formatted = labelFormatted,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-        )
-        when (valueFormatted) {
-            is ValueTypeFormatters.Formatted.LabelOnly -> {
+        row.label?.let { label ->
+            LabelText(
+                label = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+            )
+        }
+
+        when (val value = row.value) {
+            // The label carries the whole meaning; there is deliberately nothing to draw.
+            is RenderedValue.LabelOnly -> {
                 Unit
             }
 
-            is ValueTypeFormatters.Formatted.Image -> {
-                AsyncImage(
-                    model = valueFormatted.uri,
-                    contentDescription = rawLabel,
-                    modifier = Modifier.fillMaxWidth().height(160.dp),
-                )
+            is RenderedValue.Image -> {
+                when (val source = value.source) {
+                    is ImageSource.Inline -> {
+                        AsyncImage(
+                            model = source.bytes,
+                            contentDescription = row.label?.plainText(),
+                            modifier = Modifier.fillMaxWidth().height(160.dp),
+                        )
+                    }
+
+                    // A remote image only becomes renderable once its bytes have been
+                    // fetched and checked against the issuer-signed hash. Until that
+                    // resolution step exists, showing the URL's content would be showing
+                    // unverified bytes, so the row holds its space and shows nothing.
+                    is ImageSource.Remote -> {
+                        Unit
+                    }
+                }
             }
 
-            is ValueTypeFormatters.Formatted.Url -> {
-                val handler = LocalUriHandler.current
+            is RenderedValue.Link -> {
                 Text(
                     text =
                         AnnotatedString(
-                            text = valueFormatted.href,
+                            text = value.display,
                             spanStyle =
                                 SpanStyle(
                                     color = MaterialTheme.colorScheme.primary,
@@ -186,28 +142,13 @@ private fun ClaimRow(
                                 ),
                         ),
                     style = MaterialTheme.typography.titleMedium,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
-                )
-                // Tap target: anywhere on the URL text. Compose-Material3 doesn't have
-                // a clickable Text overload natively; rely on enclosing card / use the
-                // platform URL handler when the layer wires up a click.
-                handler.toString() // suppress unused
-            }
-
-            is ValueTypeFormatters.Formatted.MiniMarkdown -> {
-                Text(
-                    text = renderMiniMarkdown(valueFormatted.text),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                 )
             }
 
-            is ValueTypeFormatters.Formatted.PlainText -> {
+            is RenderedValue.Text -> {
                 Text(
-                    text = valueFormatted.text,
+                    text = value.content.annotated(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Medium,
                 )
@@ -217,103 +158,46 @@ private fun ClaimRow(
 }
 
 /**
- * Template placeholder resolver per paso-view.md §3 `template:${value_type}`.
- * `{<index>}` refers to the zero-based position of a claim in the type's `claims`
- * array. Substituted values are rendered with the referenced claim's own
- * `value_type`. The final string is formatted using the inner value_type
- * (passed back to the renderer via the returned [Formatted] kind).
+ * Renders a validated label. Exposed because the screen's action buttons and app-bar title
+ * come from the same `ui_labels` block and must honour the same formatting.
  */
-private fun resolveTemplate(
-    template: String,
-    innerType: String,
-    claimsArray: List<ClaimMetadata>,
-    payload: JsonObject,
-    locale: Locale,
-): ValueTypeFormatters.Formatted? {
-    val PLACEHOLDER = Regex("""\{(\d+)\}""")
-    var dropEntry = false
-    val substituted =
-        PLACEHOLDER.replace(template) { match ->
-            if (dropEntry) return@replace ""
-            val idx = match.groupValues[1].toInt()
-            val target = claimsArray.getOrNull(idx) ?: return@replace match.value
-            // BRIDGE (temporary): see the note at the ClaimRow call site. Wildcards are
-            // dropped here too; index-bound wildcard references land with the real
-            // TemplateInterpolator.
-            val targetValue = ValueTypeFormatters.resolvePath(payload, target.path.filterNotNull())
-            if (targetValue == null) {
-                dropEntry = true
-                return@replace ""
-            }
-            when (val formatted = ValueTypeFormatters.format(targetValue, target.valueType, locale)) {
-                is ValueTypeFormatters.Formatted.PlainText -> formatted.text
-                is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
-                is ValueTypeFormatters.Formatted.Url -> formatted.href
-                is ValueTypeFormatters.Formatted.Image -> formatted.uri
-                is ValueTypeFormatters.Formatted.LabelOnly -> ""
-            }
-        }
-    if (dropEntry) return null
-    // Apply the inner value_type to the now-interpolated string.
-    return when (innerType) {
-        ValueTypeFormatters.MINI_MARKDOWN -> ValueTypeFormatters.Formatted.MiniMarkdown(substituted)
-        ValueTypeFormatters.URL -> ValueTypeFormatters.Formatted.Url(substituted)
-        else -> ValueTypeFormatters.Formatted.PlainText(substituted)
-    }
+@Composable
+fun LabelText(
+    label: RenderedLabel,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+) {
+    Text(
+        text = label.content.annotated(),
+        style = style,
+        color = color,
+        fontWeight = fontWeight,
+        modifier = modifier,
+    )
 }
 
-/**
- * Look up `<path-last-segment><relativeKey>` in the same parent object as the
- * claim's leaf — used for `image` value_type to find a sibling `*#integrity` claim
- * per paso-view.md §3.
- */
-private fun resolveSibling(
-    payload: JsonObject,
-    path: List<String>,
-    relativeKey: String,
-): JsonElement? {
-    if (path.isEmpty()) return null
-    val parent =
-        if (path.size == 1) {
-            payload
-        } else {
-            ValueTypeFormatters.resolvePath(payload, path.dropLast(1)) as? JsonObject ?: return null
-        }
-    val leafKey = path.last() + relativeKey
-    return parent[leafKey]
-}
+/** The label's text with no formatting — for content descriptions and plain-string sinks. */
+fun RenderedLabel.plainText(): String =
+    when (val c = content) {
+        is FormattedText.Plain -> c.text
+        is FormattedText.Markdown -> c.source
+    }
 
 @Composable
-private fun FormattedAsText(
-    formatted: ValueTypeFormatters.Formatted,
-    style: androidx.compose.ui.text.TextStyle,
-    color: androidx.compose.ui.graphics.Color,
-) {
-    when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
-            Text(text = renderMiniMarkdown(formatted.text), style = style, color = color)
-        }
-
-        is ValueTypeFormatters.Formatted.PlainText -> {
-            Text(text = formatted.text, style = style, color = color)
-        }
-
-        is ValueTypeFormatters.Formatted.Url -> {
-            Text(text = formatted.href, style = style, color = color)
-        }
-
-        is ValueTypeFormatters.Formatted.LabelOnly,
-        is ValueTypeFormatters.Formatted.Image,
-        -> {
-            Unit
-        }
+private fun FormattedText.annotated(): AnnotatedString =
+    when (this) {
+        is FormattedText.Plain -> AnnotatedString(text)
+        is FormattedText.Markdown -> renderMiniMarkdown(source)
     }
-}
 
 /**
- * Minimal CommonMark subset for `mini_markdown` per paso-view.md §3: `*em*`/`_em_`,
- * `**strong**`/`__strong__`, and `<u>underline</u>`. Anything else stays literal —
- * the spec mandates this exact subset.
+ * The `mini_markdown` subset of CommonMark permitted by PaSO View §3: emphasis, strong
+ * emphasis, and `<u>` for underline. Everything else — every other CommonMark construct
+ * and all raw HTML — renders as its literal string representation, which is the spec's
+ * requirement and also the whole security property: issuer text is display data, never
+ * markup the wallet will act on.
  */
 internal fun renderMiniMarkdown(input: String): AnnotatedString =
     buildAnnotatedString {
@@ -371,24 +255,19 @@ internal fun renderMiniMarkdown(input: String): AnnotatedString =
     }
 
 /**
- * Issuer-supplied security hint — rendered verbatim per the metadata spec §3.2
- * ("the Wallet SHALL display it exactly as provided and SHALL NOT alter or remove
- * it"). The string never passes through `stringResource`. The label's own
- * `value_type` is applied per §3.2 — typically plain text but mini_markdown is
- * permitted so emphasis stays meaningful.
+ * The issuer's security hint, rendered verbatim (paso-proof-metadata.md §3.2: "the Wallet
+ * SHALL display it exactly as provided and SHALL NOT alter or remove it"). The string
+ * never passes through `stringResource`, and it is plain text by construction — §3.3
+ * forbids a `security_hint` entry from carrying a `value_type` at all.
  *
- * Presented as a caution, deliberately NOT as an error: this hint accompanies every
- * legitimate transaction of its type, so reusing `errorContainer` here would dilute
- * the one red signal on this screen that means stop — `UntrustedNotice`'s hard trust
- * failure. Geometry matches that notice (20dp corners, 24dp leading icon, 18/16dp
- * padding) so the screen's warnings still read as one family; only the severity tier
- * differs.
- *
- * No `fontWeight` is imposed on the text: the hint may be `mini_markdown`, and a
- * blanket SemiBold would flatten the issuer's own `**strong**` emphasis.
+ * Presented as a caution, deliberately not as an error: this hint accompanies every
+ * legitimate transaction of its type, so reusing `errorContainer` would dilute the one red
+ * signal on this screen that means stop — `UntrustedNotice`'s hard trust failure. Geometry
+ * matches that notice (20dp corners, 24dp leading icon, 18/16dp padding) so the warnings
+ * still read as one family; only the severity tier differs.
  */
 @Composable
-private fun SecurityHintBanner(hint: ValueTypeFormatters.Formatted) {
+private fun SecurityHintBanner(hint: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -401,109 +280,18 @@ private fun SecurityHintBanner(hint: ValueTypeFormatters.Formatted) {
         ) {
             Icon(
                 imageVector = Icons.Outlined.GppMaybe,
-                // Announced before the verbatim hint so TalkBack conveys the ROLE of
-                // the text. Labelling the icon is added context, not an alteration of
-                // the issuer's string, so §3.2 is untouched.
+                // Announced before the verbatim hint so TalkBack conveys the ROLE of the
+                // text. Labelling the icon is added context, not an alteration of the
+                // issuer's string, so §3.2 is untouched.
                 contentDescription = stringResource(R.string.present_security_hint),
                 tint = MaterialTheme.colorScheme.onTertiaryContainer,
                 modifier = Modifier.size(24.dp),
             )
-            FormattedLabel(
-                formatted = hint,
+            Text(
+                text = hint,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
         }
     }
-}
-
-/**
- * Resolves a [LocalizedLabel] to a [ValueTypeFormatters.Formatted] applying the
- * label's own `value_type` per metadata spec §3.2. Templates have access to the
- * surrounding `transaction_data_types` entry's `claims` array and the verifier's
- * payload, matching the semantics defined in paso-view.md §3.
- */
-private fun formatLabel(
-    label: LocalizedLabel,
-    metadata: TransactionDataTypeMetadata,
-    payload: JsonObject?,
-    locale: Locale,
-): ValueTypeFormatters.Formatted =
-    ValueTypeFormatters.format(
-        value = kotlinx.serialization.json.JsonPrimitive(label.value),
-        valueType = label.valueType,
-        locale = locale,
-        resolveTemplate = { template, innerType ->
-            if (payload == null) {
-                ValueTypeFormatters.Formatted.PlainText(template)
-            } else {
-                resolveTemplate(template, innerType, metadata.claims, payload, locale)
-            }
-        },
-    )
-
-/**
- * Renders a [ValueTypeFormatters.Formatted] label with shared styling. Image/url
- * inside a label is unusual but spec-permitted; we render them as text so the
- * surrounding container (heading/banner/button) keeps its semantics.
- */
-@Composable
-private fun FormattedLabel(
-    formatted: ValueTypeFormatters.Formatted,
-    style: androidx.compose.ui.text.TextStyle,
-    modifier: Modifier = Modifier,
-    color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
-    fontWeight: FontWeight? = null,
-) {
-    when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
-            Text(
-                text = renderMiniMarkdown(formatted.text),
-                style = style,
-                color = color,
-                fontWeight = fontWeight,
-                modifier = modifier,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.PlainText -> {
-            Text(
-                text = formatted.text,
-                style = style,
-                color = color,
-                fontWeight = fontWeight,
-                modifier = modifier,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.Url -> {
-            Text(
-                text = formatted.href,
-                style = style,
-                color = color,
-                fontWeight = fontWeight,
-                modifier = modifier,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.Image,
-        is ValueTypeFormatters.Formatted.LabelOnly,
-        -> {
-            Unit
-        }
-    }
-}
-
-/**
- * Public entry for callers outside this file (e.g. PresentScreen button labels)
- * that need to honor a LocalizedLabel's value_type for non-claim UI elements.
- */
-@Stable
-object UiLabelRenderer {
-    fun resolve(
-        label: LocalizedLabel,
-        metadata: TransactionDataTypeMetadata,
-        payload: JsonObject?,
-        locale: Locale,
-    ): ValueTypeFormatters.Formatted = formatLabel(label, metadata, payload, locale)
 }

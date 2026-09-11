@@ -29,6 +29,8 @@ import dev.digitallabor.elpaso.wallet.presentation.builder.MdocDeviceResponseBui
 import dev.digitallabor.elpaso.wallet.presentation.builder.SdJwtPresentationBuilder
 import dev.digitallabor.elpaso.wallet.presentation.txdata.AdhocTransactionMetadataVerifier
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataCompatibilityChecker
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataValidator
 import dev.digitallabor.elpaso.wallet.session.AppLockManager
 import dev.digitallabor.elpaso.wallet.session.BiometricAuthorizer
 import dev.digitallabor.elpaso.wallet.session.BiometricCipherAuthorizer
@@ -115,6 +117,8 @@ val presentationModule =
         single { DcqlCandidateResolver() }
         single { AdhocTransactionMetadataVerifier(get(), get(named("cacheOnly"))) }
         single { TransactionMetadataResolver(get(), get()) }
+        single { TransactionDataValidator() }
+        single { TransactionDataCompatibilityChecker(get()) }
         single { SdJwtPresentationBuilder(get()) }
         single { MdocDeviceResponseBuilder(get()) }
         single { PresentationClient(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }

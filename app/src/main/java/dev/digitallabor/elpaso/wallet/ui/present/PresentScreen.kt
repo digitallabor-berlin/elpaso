@@ -77,18 +77,21 @@ import dev.digitallabor.elpaso.wallet.domain.claims.ClaimLabelResolver
 import dev.digitallabor.elpaso.wallet.domain.claims.CredentialClaims
 import dev.digitallabor.elpaso.wallet.domain.model.Credential
 import dev.digitallabor.elpaso.wallet.domain.model.CredentialDisplay
-import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.PassArt
-import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
-import dev.digitallabor.elpaso.wallet.domain.model.pick
 import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
 import dev.digitallabor.elpaso.wallet.presentation.PresentationClient
 import dev.digitallabor.elpaso.wallet.presentation.txdata.DynamicTransactionDataBlock
+import dev.digitallabor.elpaso.wallet.presentation.txdata.LabelText
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionDataBlock
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
-import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
+import dev.digitallabor.elpaso.wallet.presentation.txdata.plainText
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.LocaleSelection
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderPlan
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataCompatibilityChecker
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.ValidationResult
 import dev.digitallabor.elpaso.wallet.session.BiometricAuthorizer
 import dev.digitallabor.elpaso.wallet.ui.common.ErrorModal
 import dev.digitallabor.elpaso.wallet.ui.nav.Route
@@ -115,6 +118,7 @@ fun PresentScreen(
     val biometric: BiometricAuthorizer = koinInject()
     val repository: CredentialRepository = koinInject()
     val metadataResolver: TransactionMetadataResolver = koinInject()
+    val compatibilityChecker: TransactionDataCompatibilityChecker = koinInject()
     val settings: SettingsRepository = koinInject()
     val state by client.state.collectAsState(initial = PresentationClient.State.Idle)
     val developerMode by settings.developerMode.collectAsState(initial = true)
@@ -363,6 +367,7 @@ fun PresentScreen(
                             resolved = s,
                             credentialsById = credentialsById,
                             metadataResolver = metadataResolver,
+                            compatibilityChecker = compatibilityChecker,
                             settings = settings,
                             onCancel = onCancel,
                             onAuthorize = authorize,
@@ -474,6 +479,7 @@ private fun ResolvedContent(
     resolved: PresentationClient.State.Resolved,
     credentialsById: Map<String, Credential>,
     metadataResolver: TransactionMetadataResolver,
+    compatibilityChecker: TransactionDataCompatibilityChecker,
     settings: SettingsRepository,
     onCancel: () -> Unit,
     onAuthorize: (List<DcqlMatcher.Match>) -> Unit,
@@ -504,66 +510,83 @@ private fun ResolvedContent(
         selectedCandidate
             ?.assignments
             ?.firstNotNullOfOrNull { credentialsById[it.credentialId] }
-    // Per-entry metadata lookup, re-runs when the selected credential changes so
-    // switching credentials updates the consent block live (additive — when no
-    // metadata is found we fall back to the hardcoded renderer).
-    val dynamicMetadata =
+    // Pre-validated render plans, keyed by the entry's verbatim base64url string rather
+    // than by type: ad-hoc metadata is scoped to its own entry (paso-proof-metadata.md
+    // §5.4), so two entries sharing a type must not share one entry's issuer-signed labels.
+    // Re-runs when the selected credential changes, so swiping the carousel re-validates
+    // against the credential the user is actually about to disclose.
+    val plans =
         remember(resolved, sourceCredential, locale) {
-            mutableStateOf<Map<String, TransactionDataTypeMetadata>>(emptyMap())
+            mutableStateOf<Map<String, RenderPlan>>(emptyMap())
         }
-    // Non-null once an entry's ad-hoc `metadata` JWT has failed §5.3. This is a refusal,
-    // not a degraded render: see [TransactionMetadataResolver] and the branch below.
-    val incompatible =
+    // Non-null once any entry has been refused. Two different rules land here and both are
+    // refusals rather than degraded renders: an ad-hoc `metadata` JWT that failed §5.3, and
+    // an entry whose metadata or payload violates the rendering constraints of PaSO View
+    // §2–§4.
+    val refusal =
         remember(resolved, sourceCredential, locale) {
-            mutableStateOf<TransactionMetadataResolver.Outcome.Incompatible?>(null)
+            mutableStateOf<ConsentRefusal?>(null)
         }
     LaunchedEffect(resolved, sourceCredential, locale) {
         val src =
             sourceCredential ?: run {
-                dynamicMetadata.value = emptyMap()
-                incompatible.value = null
+                plans.value = emptyMap()
+                refusal.value = null
                 onDynamicScreenTitle(null)
                 Log.d("PresentScreen", "no source credential; clearing dynamic title")
                 return@LaunchedEffect
             }
-        // Keyed by the entry's verbatim base64url string, not by type: ad-hoc metadata is
-        // scoped to its own entry (paso-proof-metadata.md §5.4), so two entries sharing a
-        // type must not share one entry's issuer-signed labels.
         val byEntry =
             when (val outcome = metadataResolver.resolve(resolved.transactionData, src, locale)) {
                 is TransactionMetadataResolver.Outcome.Incompatible -> {
                     Log.w("PresentScreen", "refusing presentation: ${outcome.entryType} — ${outcome.reason}")
-                    dynamicMetadata.value = emptyMap()
-                    incompatible.value = outcome
+                    plans.value = emptyMap()
+                    refusal.value = ConsentRefusal(outcome.entryType, outcome.reason)
                     onDynamicScreenTitle(null)
                     return@LaunchedEffect
                 }
 
-                is TransactionMetadataResolver.Outcome.Resolved -> {
-                    outcome.byEntry
-                }
+                is TransactionMetadataResolver.Outcome.Resolved -> outcome.byEntry
             }
-        incompatible.value = null
-        dynamicMetadata.value = byEntry
-        Log.d("PresentScreen", "metadata loaded for credential=${src.id} entries=${byEntry.size}")
+
+        // Every entry that has metadata must pass §7.4.2 step 2 before anything is drawn.
+        // One incompatible entry refuses the whole request: the user consents once, to the
+        // request as a whole, so rendering the rest and dropping this one would misrepresent
+        // what is being approved.
+        val selection = LocaleSelection(locale.toLanguageTag(), locale)
+        val validated = mutableMapOf<String, RenderPlan>()
+        for (entry in resolved.transactionData) {
+            val metadata = byEntry[entry.raw] ?: continue
+            val payload = entry.payloadScope ?: continue
+            when (val result = compatibilityChecker.check(metadata, payload, selection)) {
+                is ValidationResult.Incompatible -> {
+                    // The reason code is logged, never shown: a verifier must not learn
+                    // which of its labels tripped which limit.
+                    Log.w(
+                        "PresentScreen",
+                        "entry ${entry.type} is not compatible: ${result.reason.code} — ${result.reason.detail}",
+                    )
+                    plans.value = emptyMap()
+                    refusal.value = ConsentRefusal(entry.type, result.reason.code.name)
+                    onDynamicScreenTitle(null)
+                    return@LaunchedEffect
+                }
+
+                is ValidationResult.Compatible -> validated[entry.raw] = result.plan
+            }
+        }
+
+        refusal.value = null
+        plans.value = validated
+        Log.d("PresentScreen", "plans built for credential=${src.id} entries=${validated.size}")
         // Lift transaction_title up to the screen-level app bar (paso-proof-metadata.md
-        // §3.2 — "Title for the consent screen"). Use the first transaction_data entry
-        // that resolved against metadata; that's the entry the user is consenting to.
+        // §3.2 — "Title for the consent screen"). Use the first entry that produced a plan;
+        // that's the entry the user is consenting to.
         val title =
             resolved.transactionData
-                .firstNotNullOfOrNull { entry ->
-                    val md = byEntry[entry.raw] ?: return@firstNotNullOfOrNull null
-                    val label = md.uiLabels.transactionTitle.pick(locale) ?: return@firstNotNullOfOrNull null
-                    val formatted =
-                        dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer
-                            .resolve(label, md, entry.payloadScope, locale)
-                    when (formatted) {
-                        is ValueTypeFormatters.Formatted.PlainText -> formatted.text
-                        is ValueTypeFormatters.Formatted.MiniMarkdown -> formatted.text
-                        is ValueTypeFormatters.Formatted.Url -> formatted.href
-                        else -> null
-                    }?.takeIf { it.isNotBlank() }
-                }
+                .firstNotNullOfOrNull { entry -> validated[entry.raw]?.title }
+                ?.plainText()
+                ?.takeIf { it.isNotBlank() }
         Log.d("PresentScreen", "dynamic title resolved to: $title")
         onDynamicScreenTitle(title)
     }
@@ -577,39 +600,10 @@ private fun ResolvedContent(
     //
     // Hoisted above the layout branch below because the payment screen and the
     // general consent screen share the same action row.
-    val primaryDynamicLabels: TransactionDataTypeMetadata? =
-        resolved.transactionData
-            .firstNotNullOfOrNull { dynamicMetadata.value[it.raw] }
-    val primaryPayload =
-        resolved.transactionData
-            .firstOrNull { dynamicMetadata.value[it.raw] != null }
-            ?.payloadScope
-    val dynamicAffirmative: ValueTypeFormatters.Formatted? =
-        primaryDynamicLabels
-            ?.uiLabels
-            ?.affirmativeActionLabel
-            ?.pick(locale)
-            ?.let {
-                dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
-                    it,
-                    primaryDynamicLabels,
-                    primaryPayload,
-                    locale,
-                )
-            }
-    val dynamicDenial: ValueTypeFormatters.Formatted? =
-        primaryDynamicLabels
-            ?.uiLabels
-            ?.denialActionLabel
-            ?.pick(locale)
-            ?.let {
-                dev.digitallabor.elpaso.wallet.presentation.txdata.UiLabelRenderer.resolve(
-                    it,
-                    primaryDynamicLabels,
-                    primaryPayload,
-                    locale,
-                )
-            }
+    val primaryPlan: RenderPlan? =
+        resolved.transactionData.firstNotNullOfOrNull { plans.value[it.raw] }
+    val dynamicAffirmative: RenderedLabel? = primaryPlan?.affirmativeLabel
+    val dynamicDenial: RenderedLabel? = primaryPlan?.denialLabel
     val authorizeFallback = stringResource(authorizeLabelFor(resolved.transactionData))
 
     // A payment request gets a purpose-built screen: amount and payee as the hero, the
@@ -621,7 +615,7 @@ private fun ResolvedContent(
     // branch so a payment entry cannot slip past on the purpose-built screen — that screen
     // renders amount and payee from the entry itself, which is exactly the data the failed
     // signature was supposed to vouch for.
-    incompatible.value?.let { failure ->
+    refusal.value?.let { failure ->
         IncompatibleTransactionContent(
             verifierName = resolved.verifier.displayLabel,
             entryType = failure.entryType,
@@ -664,10 +658,13 @@ private fun ResolvedContent(
         )
 
         resolved.transactionData.forEach { td ->
-            val metadata = dynamicMetadata.value[td.raw]
-            if (metadata != null) {
-                DynamicTransactionDataBlock(item = td, metadata = metadata, locale = locale)
+            val plan = plans.value[td.raw]
+            if (plan != null) {
+                DynamicTransactionDataBlock(plan = plan)
             } else {
+                // No issuer metadata covers this entry. That is not a violation — §3.2
+                // makes `ui_labels` optional and an entry may simply predate PaSO
+                // metadata — so the type-specific hardcoded renderer still applies.
                 TransactionDataBlock(item = td)
             }
         }
@@ -730,14 +727,24 @@ private fun SectionHeading(text: String) {
     )
 }
 
+/**
+ * Why an entry was refused. [entryType] is the only part shown to the user; the reason is
+ * carried for the log, since telling a verifier which constraint it tripped would help it
+ * search for one the wallet does not check.
+ */
+private data class ConsentRefusal(
+    val entryType: String,
+    val reason: String,
+)
+
 @Composable
 internal fun ActionRow(
-    authorizeLabel: ValueTypeFormatters.Formatted?,
+    authorizeLabel: RenderedLabel?,
     authorizeFallback: String,
     authorizeEnabled: Boolean,
     onAuthorize: () -> Unit,
     onCancel: () -> Unit,
-    denialLabel: ValueTypeFormatters.Formatted? = null,
+    denialLabel: RenderedLabel? = null,
 ) {
     // Filled primary (authorize) + filled tonal (cancel) at L-size height. The
     // primary leads visually with shape-contrast against the rounder credential
@@ -754,8 +761,8 @@ internal fun ActionRow(
                     .height(64.dp),
             shape = RoundedCornerShape(20.dp),
         ) {
-            FormattedButtonLabel(
-                formatted = denialLabel,
+            ButtonLabel(
+                label = denialLabel,
                 fallback = stringResource(R.string.present_cancel),
             )
         }
@@ -769,57 +776,32 @@ internal fun ActionRow(
             shape = RoundedCornerShape(20.dp),
             colors = ButtonDefaults.buttonColors(),
         ) {
-            FormattedButtonLabel(
-                formatted = authorizeLabel,
+            ButtonLabel(
+                label = authorizeLabel,
                 fallback = authorizeFallback,
             )
         }
     }
 }
 
+/**
+ * An action button's caption: the issuer's `ui_labels` entry when one survived validation,
+ * otherwise the wallet's own string.
+ *
+ * A [RenderedLabel] is only ever plain text or `mini_markdown` — §3.3 forbids the value
+ * types that would produce an image or a link here — so unlike the formatter it replaces,
+ * this has no unreachable branches to fall through.
+ */
 @Composable
-private fun FormattedButtonLabel(
-    formatted: ValueTypeFormatters.Formatted?,
+private fun ButtonLabel(
+    label: RenderedLabel?,
     fallback: String,
 ) {
     val style = MaterialTheme.typography.titleMedium
-    when (formatted) {
-        is ValueTypeFormatters.Formatted.MiniMarkdown -> {
-            Text(
-                text =
-                    dev.digitallabor.elpaso.wallet.presentation.txdata
-                        .renderMiniMarkdown(formatted.text),
-                style = style,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.PlainText -> {
-            Text(
-                text = formatted.text.ifBlank { fallback },
-                style = style,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.Url -> {
-            Text(
-                text = formatted.href,
-                style = style,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        is ValueTypeFormatters.Formatted.Image,
-        is ValueTypeFormatters.Formatted.LabelOnly,
-        null,
-        -> {
-            Text(
-                text = fallback,
-                style = style,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+    if (label == null || label.plainText().isBlank()) {
+        Text(text = fallback, style = style, fontWeight = FontWeight.SemiBold)
+    } else {
+        LabelText(label = label, style = style, fontWeight = FontWeight.SemiBold)
     }
 }
 
