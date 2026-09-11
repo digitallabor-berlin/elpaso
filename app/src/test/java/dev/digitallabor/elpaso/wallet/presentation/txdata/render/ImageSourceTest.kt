@@ -42,7 +42,8 @@ class ImageSourceTest {
     ): String {
         fun be32(v: Int) = byteArrayOf((v ushr 24).toByte(), (v ushr 16).toByte(), (v ushr 8).toByte(), v.toByte())
         val bytes =
-            java.io.ByteArrayOutputStream()
+            java.io
+                .ByteArrayOutputStream()
                 .apply {
                     write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
                     write(be32(13))

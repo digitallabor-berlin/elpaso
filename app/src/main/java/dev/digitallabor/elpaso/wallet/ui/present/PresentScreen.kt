@@ -46,8 +46,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -553,7 +553,9 @@ private fun ResolvedContent(
                     return@LaunchedEffect
                 }
 
-                is TransactionMetadataResolver.Outcome.Resolved -> outcome.byEntry
+                is TransactionMetadataResolver.Outcome.Resolved -> {
+                    outcome.byEntry
+                }
             }
 
         // Every entry that has metadata must pass §7.4.2 step 2 before anything is drawn.
@@ -582,7 +584,9 @@ private fun ResolvedContent(
                     return@LaunchedEffect
                 }
 
-                is ValidationResult.Compatible -> validated[entry.raw] = result.plan
+                is ValidationResult.Compatible -> {
+                    validated[entry.raw] = result.plan
+                }
             }
         }
 

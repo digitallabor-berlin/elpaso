@@ -51,9 +51,9 @@ import dev.digitallabor.elpaso.wallet.domain.model.CredentialDisplay
 import dev.digitallabor.elpaso.wallet.domain.model.PassArt
 import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
+import dev.digitallabor.elpaso.wallet.presentation.txdata.SecurityHintBanner
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.formatIsoCurrencyAmount
-import dev.digitallabor.elpaso.wallet.presentation.txdata.SecurityHintBanner
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
 import dev.digitallabor.elpaso.wallet.ui.common.TrustWarningCard
 import kotlinx.serialization.json.JsonPrimitive
