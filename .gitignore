@@ -16,3 +16,6 @@ app/release
 .kilo/
 .pi/
 
+
+# superpowers SDD scratch (ledgers, briefs, review packages)
+.superpowers/
