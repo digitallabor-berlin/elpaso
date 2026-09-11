@@ -158,7 +158,7 @@ gradle :app:testDebugUnitTest
 Both throw `NullPointerException` because they call `android.util.Base64`, which the
 JVM unit-test stub returns `null` from (`testOptions.unitTests.isReturnDefaultValues
 = true`). This is expected. **A green run is those two failures and nothing else** — at
-the time of writing that prints `526 tests completed, 2 failed`, but the total grows as
+the time of writing that prints `536 tests completed, 2 failed`, but the total grows as
 tests are added, so check the failure names rather than the count. Do not "fix" them by
 mocking unless you are actually changing `TransactionData`.
 

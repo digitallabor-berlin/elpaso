@@ -55,7 +55,7 @@ rather than editing the old one. Only `README.md`, `AGENTS.md`, and docs describ
   base64url SHA-256` and `TransactionDataTest.parse PaymentData picks up payee and
   amount fields` throw `NullPointerException` on the JVM because they call
   `android.util.Base64`. **The invariant is that those two are the *only* failures** —
-  as of writing that reads `526 tests completed, 2 failed`, but the total climbs
+  as of writing that reads `536 tests completed, 2 failed`, but the total climbs
   whenever tests are added, so judge a run by the names of the failures, not the count.
   Do not "fix" them by mocking unless you are genuinely changing `TransactionData`.
 - **JVM unit-test stubs**: `testOptions.unitTests.isReturnDefaultValues = true` means

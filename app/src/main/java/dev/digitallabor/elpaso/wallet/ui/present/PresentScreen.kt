@@ -384,14 +384,19 @@ fun PresentScreen(
 }
 
 /**
- * Terminal refusal for a `transaction_data` entry whose ad-hoc `metadata` JWT failed
- * verification (paso-proof-metadata.md §5.3).
+ * Terminal refusal for a `transaction_data` entry, in either of the two shapes that make
+ * one: an ad-hoc `metadata` JWT that failed verification (paso-proof-metadata.md §5.3), or
+ * verified metadata the wallet cannot render as specified (PaSO View §2–§4). [cause]
+ * selects which of those the body text describes — they are different accusations, and
+ * telling a user their issuer's signature is bad when the real problem was that no locale
+ * matched is both false and a dead end for anyone debugging it.
  *
- * There is deliberately no affirmative action here. §5.3 makes such an entry incompatible
- * and forbids falling back to the stored credential metadata, so there is nothing the
- * wallet can honestly show the user to approve — the details on screen would be exactly
- * the ones whose provenance could not be established. Offering "continue anyway" would
- * hand the decision to the person least equipped to make it.
+ * There is deliberately no affirmative action here, for either cause. §5.3 makes an
+ * unverified entry incompatible and forbids falling back to the stored credential
+ * metadata; View §2 leaves a renderer that hit a constraint no legal move, since degrading
+ * the content and drawing a broken screen are both forbidden. Either way there is nothing
+ * the wallet can honestly show the user to approve. Offering "continue anyway" would hand
+ * the decision to the person least equipped to make it.
  *
  * Uses `errorContainer` rather than the `tertiaryContainer` of [SecurityHintBanner]: this
  * IS the stop signal, in the same severity tier as `UntrustedNotice`. The raw type URN is
@@ -402,8 +407,19 @@ fun PresentScreen(
 private fun IncompatibleTransactionContent(
     verifierName: String,
     entryType: String,
+    cause: RefusalCause,
     onCancel: () -> Unit,
 ) {
+    val titleRes =
+        when (cause) {
+            RefusalCause.UnverifiedMetadata -> R.string.present_incompatible_title
+            RefusalCause.Unrenderable -> R.string.present_unrenderable_title
+        }
+    val bodyRes =
+        when (cause) {
+            RefusalCause.UnverifiedMetadata -> R.string.present_incompatible_body
+            RefusalCause.Unrenderable -> R.string.present_unrenderable_body
+        }
     Column(
         modifier =
             Modifier
@@ -432,14 +448,14 @@ private fun IncompatibleTransactionContent(
                         modifier = Modifier.size(24.dp),
                     )
                     Text(
-                        text = stringResource(R.string.present_incompatible_title),
+                        text = stringResource(titleRes),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
                 Text(
-                    text = stringResource(R.string.present_incompatible_body, verifierName),
+                    text = stringResource(bodyRes, verifierName),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
@@ -507,6 +523,11 @@ private fun ResolvedContent(
         initial = dev.digitallabor.elpaso.wallet.data.settings.LanguagePreference.System,
     )
     val locale = remember(languagePref) { LocaleApplier.effectiveLocale(languagePref) }
+    // The §4 language ranges are NOT `locale`. That one is clamped to a shipped app
+    // translation and stripped of its region, and RFC4647 §3.4 Lookup truncates the range
+    // rather than the tag — so a bare `en` range cannot match an `en-US` display entry, and
+    // using it here refused every issuer that localised its labels with a region.
+    val preferred = remember(languagePref) { LocaleApplier.preferredLocales(languagePref) }
     // First credential of the visible candidate. Because this feeds the
     // LaunchedEffect below, swiping the carousel re-resolves issuer metadata: the
     // transaction_data block, the dynamic screen title and the affirmative button
@@ -521,7 +542,7 @@ private fun ResolvedContent(
     // Re-runs when the selected credential changes, so swiping the carousel re-validates
     // against the credential the user is actually about to disclose.
     val plans =
-        remember(resolved, sourceCredential, locale) {
+        remember(resolved, sourceCredential, locale, preferred) {
             mutableStateOf<Map<String, RenderPlan>>(emptyMap())
         }
     // Non-null once any entry has been refused. Two different rules land here and both are
@@ -529,10 +550,10 @@ private fun ResolvedContent(
     // an entry whose metadata or payload violates the rendering constraints of PaSO View
     // §2–§4.
     val refusal =
-        remember(resolved, sourceCredential, locale) {
+        remember(resolved, sourceCredential, locale, preferred) {
             mutableStateOf<ConsentRefusal?>(null)
         }
-    LaunchedEffect(resolved, sourceCredential, locale) {
+    LaunchedEffect(resolved, sourceCredential, locale, preferred) {
         val src =
             sourceCredential ?: run {
                 plans.value = emptyMap()
@@ -547,7 +568,7 @@ private fun ResolvedContent(
                 is TransactionMetadataResolver.Outcome.Incompatible -> {
                     Log.w("PresentScreen", "refusing presentation: ${outcome.entryType} — ${outcome.reason}")
                     plans.value = emptyMap()
-                    refusal.value = ConsentRefusal(outcome.entryType, outcome.reason)
+                    refusal.value = ConsentRefusal(outcome.entryType, outcome.reason, RefusalCause.UnverifiedMetadata)
                     onDynamicScreenTitle(null)
                     onDisplayLocale(null)
                     return@LaunchedEffect
@@ -564,7 +585,7 @@ private fun ResolvedContent(
         // what is being approved.
         // PaSO View §4 takes an ordered list, not a single locale: the wallet tries each
         // language in turn and only settles on one that every display array can serve.
-        val priority = LocaleSelector.localePriorityList(listOf(locale), Locale.ENGLISH)
+        val priority = LocaleSelector.localePriorityList(preferred, Locale.ENGLISH)
         val validated = mutableMapOf<String, RenderPlan>()
         for (entry in resolved.transactionData) {
             val metadata = byEntry[entry.raw] ?: continue
@@ -578,7 +599,7 @@ private fun ResolvedContent(
                         "entry ${entry.type} is not compatible: ${result.reason.code} — ${result.reason.detail}",
                     )
                     plans.value = emptyMap()
-                    refusal.value = ConsentRefusal(entry.type, result.reason.code.name)
+                    refusal.value = ConsentRefusal(entry.type, result.reason.code.name, RefusalCause.Unrenderable)
                     onDynamicScreenTitle(null)
                     onDisplayLocale(null)
                     return@LaunchedEffect
@@ -639,6 +660,7 @@ private fun ResolvedContent(
         IncompatibleTransactionContent(
             verifierName = resolved.verifier.displayLabel,
             entryType = failure.entryType,
+            cause = failure.cause,
             onCancel = onCancel,
         )
         return
@@ -784,14 +806,34 @@ private fun SectionHeading(text: String) {
 }
 
 /**
- * Why an entry was refused. [entryType] is the only part shown to the user; the reason is
- * carried for the log, since telling a verifier which constraint it tripped would help it
- * search for one the wallet does not check.
+ * Why an entry was refused. [entryType] and [cause] are the only parts shown to the user;
+ * [reason] is carried for the log, since telling a verifier which constraint it tripped
+ * would help it search for one the wallet does not check.
  */
 private data class ConsentRefusal(
     val entryType: String,
     val reason: String,
+    val cause: RefusalCause,
 )
+
+/**
+ * Which of the two refusal rules fired. Both end the request, but they are different
+ * accusations and the screen must not conflate them: one says the verifier's metadata was
+ * not signed by the issuer, the other says it was — and still could not be drawn as the
+ * issuer specified. Reporting a locale or label failure as a bad signature sends whoever
+ * is debugging it to inspect certificates that were never the problem.
+ *
+ * The distinction is coarse on purpose. It names the *rule*, never the constraint: the
+ * specific [IncompatibilityReason] stays in the log so a verifier cannot probe for a
+ * constraint the wallet does not check.
+ */
+private enum class RefusalCause {
+    /** paso-proof-metadata.md §5.3 — the ad-hoc `metadata` JWT failed verification. */
+    UnverifiedMetadata,
+
+    /** PaSO View §2–§4 — verified metadata that cannot be rendered as specified. */
+    Unrenderable,
+}
 
 @Composable
 internal fun ActionRow(

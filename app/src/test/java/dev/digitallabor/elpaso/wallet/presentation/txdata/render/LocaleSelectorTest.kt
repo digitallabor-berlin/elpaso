@@ -176,4 +176,49 @@ class LocaleSelectorTest {
     fun priorityListIsNeverEmpty() {
         assertEquals(listOf("en"), LocaleSelector.localePriorityList(emptyList(), Locale.ENGLISH).map { it.toLanguageTag() })
     }
+
+    // --- Regression: regionful tags ---
+
+    /**
+     * Field failure. A verifier sent ad-hoc metadata whose every array was tagged `en-US`;
+     * the entry verified, then was refused with NO_LOCALE_MATCH on an en-US device, because
+     * the caller passed the clamped app-chrome locale (a bare `en`) as the range. Lookup
+     * truncates the range and not the tag, so `en` genuinely does not match `en-US` — the
+     * defect was upstream, in throwing the region away. Both directions are pinned here so
+     * a future "fix" that loosens [LocaleSelector.lookup] instead is caught: loosening it
+     * would make a `de` range match a `de-CH` label, which §4 does not permit.
+     */
+    private fun regionfulMetadata() =
+        TransactionDataTypeMetadata(
+            claims = listOf(claim(mapOf("en-US" to "Old limit"))),
+            uiLabels =
+                UiLabels(
+                    transactionTitle = listOf(LocalizedLabel("en-US", "Limit change", null)),
+                    affirmativeActionLabel = listOf(LocalizedLabel("en-US", "Approve", null)),
+                    securityHint = listOf(LocalizedLabel("en-US", "Never change your limit on request.", null)),
+                ),
+        )
+
+    @Test
+    fun aBareLanguageRangeDoesNotReachRegionfulTags() {
+        assertNull(LocaleSelector.select(regionfulMetadata(), listOf(Locale.ENGLISH)))
+    }
+
+    @Test
+    fun aRegionfulRangeMatchesRegionfulTags() {
+        val selection = LocaleSelector.select(regionfulMetadata(), listOf(Locale.forLanguageTag("en-US")))!!
+        assertEquals("Old limit", selection.claimDisplay[0]?.name)
+        assertEquals("Limit change", selection.uiLabel[UiLabelKeys.TRANSACTION_TITLE]?.value)
+    }
+
+    @Test
+    fun aRegionfulRangeStillMatchesBareTags() {
+        // The reason keeping the region is free: §3.4 truncation covers the bare case too.
+        val md =
+            TransactionDataTypeMetadata(
+                claims = listOf(claim(mapOf("en" to "Amount"))),
+                uiLabels = UiLabels(transactionTitle = listOf(LocalizedLabel("en-US", "Payment", null))),
+            )
+        assertNotNull(LocaleSelector.select(md, listOf(Locale.forLanguageTag("en-US"))))
+    }
 }

@@ -69,6 +69,8 @@
     <string name="present_incompatible_title">Transaction couldn\'t be verified</string>
     <string name="present_incompatible_body">%1$s sent transaction details that don\'t carry a valid signature from the issuer of your credential. El Paso can\'t show you what you would be approving, so this request was stopped.</string>
     <string name="present_incompatible_type">Transaction type: %1$s</string>
+    <string name="present_unrenderable_title">Transaction can\'t be displayed</string>
+    <string name="present_unrenderable_body">%1$s sent transaction details that El Paso can\'t display the way your credential\'s issuer specified — for example, no wording was available in a language you read. Showing them anyway could misrepresent what you would be approving, so this request was stopped.</string>
     <string name="present_loading">Loading…</string>
     <string name="present_error_prefix">Error: %1$s</string>
     <string name="present_failed_generic">Presentation failed</string>
