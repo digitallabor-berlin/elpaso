@@ -122,6 +122,23 @@ class TransactionDataValidator(
         }
 
         val uiElementCount = listOfNotNull(title, affirmative, denial).size + if (hintEntry != null) 1 else 0
+        val totalItemCount = rows.size + uiElementCount
+
+        // PaSO View §2: "The Wallet SHALL enforce an upper bound on the total number of
+        // rendered items — claim instances after array wildcard expansion plus UI elements
+        // ... A `transaction_data` entry that would exceed the Wallet's bound is not
+        // compatible and the Wallet SHALL exclude it."
+        //
+        // Checked here rather than up front because the count is not knowable from the
+        // metadata alone: an optional claim whose field is absent produces no row, so the
+        // number of *rendered* items is only settled once the rows exist. Counting claims
+        // instead would refuse entries that render well within the bound.
+        if (totalItemCount > maxRenderedItems) {
+            return reason(
+                IncompatibilityReason.Code.TOO_MANY_ITEMS,
+                "$totalItemCount rendered items exceeds the $maxRenderedItems cap",
+            ).asResult()
+        }
 
         return ValidationResult.Compatible(
             RenderPlan(
@@ -131,7 +148,7 @@ class TransactionDataValidator(
                 affirmativeLabel = affirmative,
                 denialLabel = denial,
                 selectedLocaleTag = selection.tag,
-                totalItemCount = rows.size + uiElementCount,
+                totalItemCount = totalItemCount,
             ),
         )
     }

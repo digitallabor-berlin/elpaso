@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +46,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -651,6 +653,13 @@ private fun ResolvedContent(
             authorizeLabel = dynamicAffirmative,
             authorizeFallback = authorizeFallback,
             denialLabel = dynamicDenial,
+            // §2 requires the security hint to have been displayed before the confirmation
+            // action is enabled, and this screen — not the generic one — is what a payment
+            // actually renders. It previously showed no hint at all: SecurityHintBanner is
+            // reached only through DynamicTransactionDataBlock, which the payment layout
+            // does not use. An issuer's anti-phishing text was therefore dropped on exactly
+            // the flow it exists to protect.
+            securityHint = primaryPlan?.securityHint,
             onAuthorize = { selectedCandidate?.let { onAuthorize(it.assignments) } },
             onCancel = onCancel,
         )
@@ -713,7 +722,11 @@ private fun ResolvedContent(
             }
         }
 
-        val authorizeEnabled = hasCandidate && resolved.verifier.trusted
+        // Called unconditionally, then combined. Behind a `&&` it would be invoked only
+        // when the earlier operands hold, so the scroll observation would stop existing
+        // for an untrusted verifier and restart if trust changed.
+        val contentReviewed = rememberContentReviewed(scroll)
+        val authorizeEnabled = hasCandidate && resolved.verifier.trusted && contentReviewed
 
         ActionRow(
             authorizeLabel = dynamicAffirmative,
@@ -729,6 +742,31 @@ private fun ResolvedContent(
             onCancel = onCancel,
         )
     }
+}
+
+/**
+ * Whether the user has been shown the whole consent surface — PaSO View §2: "all claims
+ * with a `display` array, and all populated UI elements — including the `security_hint`
+ * where present — have been displayed to the user before enabling the confirmation
+ * action", and, where scrolling is used, "the Wallet ensures the content has been displayed
+ * in full before enabling the confirmation action".
+ *
+ * The action row already sits at the end of the scrolling column, so a sighted user cannot
+ * reach the button without passing everything above it. That is not the whole requirement:
+ * an *enabled* control is reachable by an accessibility service or an automation gesture
+ * without the content ever having been on screen. The spec constrains enabling, not
+ * tapping, so the enabled state is what this gates.
+ *
+ * Before the first layout pass `maxValue` is [Int.MAX_VALUE]; that is reported as
+ * not-yet-reviewed rather than guessed at. Content shorter than the viewport settles at
+ * `maxValue == 0`, which the same comparison treats as reviewed.
+ */
+@Composable
+internal fun rememberContentReviewed(scroll: androidx.compose.foundation.ScrollState): Boolean {
+    val reviewed by remember(scroll) {
+        derivedStateOf { scroll.maxValue != Int.MAX_VALUE && scroll.value >= scroll.maxValue }
+    }
+    return reviewed
 }
 
 @Composable
@@ -767,12 +805,20 @@ internal fun ActionRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // `defaultMinSize`, not `height`: a fixed height clips a long issuer label, and
+        // clipping is the failure §2 singles out for action labels — "For action labels
+        // this MAY include wrapping the label across multiple lines, enlarging the control,
+        // or reducing the font size ... the Wallet MUST NOT rely on platform default
+        // controls that truncate or ellipsize overflowing text." An affirmative label may
+        // be 40 grapheme clusters, which does not fit two lines of titleMedium in a
+        // half-width button once platform text scaling is applied. The control grows
+        // instead; 64dp remains the floor so the touch target is unchanged.
         FilledTonalButton(
             onClick = onCancel,
             modifier =
                 Modifier
                     .weight(1f)
-                    .height(64.dp),
+                    .defaultMinSize(minHeight = 64.dp),
             shape = RoundedCornerShape(20.dp),
         ) {
             ButtonLabel(
@@ -786,7 +832,7 @@ internal fun ActionRow(
             modifier =
                 Modifier
                     .weight(1f)
-                    .height(64.dp),
+                    .defaultMinSize(minHeight = 64.dp),
             shape = RoundedCornerShape(20.dp),
             colors = ButtonDefaults.buttonColors(),
         ) {
@@ -813,7 +859,14 @@ private fun ButtonLabel(
 ) {
     val style = MaterialTheme.typography.titleMedium
     if (label == null || label.plainText().isBlank()) {
-        Text(text = fallback, style = style, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = fallback,
+            style = style,
+            fontWeight = FontWeight.SemiBold,
+            softWrap = true,
+            overflow = TextOverflow.Clip,
+            maxLines = Int.MAX_VALUE,
+        )
     } else {
         LabelText(label = label, style = style, fontWeight = FontWeight.SemiBold)
     }

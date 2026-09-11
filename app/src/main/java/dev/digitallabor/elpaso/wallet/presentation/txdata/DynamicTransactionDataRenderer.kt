@@ -29,6 +29,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -189,6 +190,9 @@ private fun ClaimRow(
                                 ),
                         ),
                     style = MaterialTheme.typography.titleMedium,
+                    softWrap = true,
+                    overflow = TextOverflow.Clip,
+                    maxLines = Int.MAX_VALUE,
                     modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                 )
             }
@@ -198,6 +202,9 @@ private fun ClaimRow(
                     text = value.content.annotated(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Medium,
+                    softWrap = true,
+                    overflow = TextOverflow.Clip,
+                    maxLines = Int.MAX_VALUE,
                 )
             }
         }
@@ -207,6 +214,15 @@ private fun ClaimRow(
 /**
  * Renders a validated label. Exposed because the screen's action buttons and app-bar title
  * come from the same `ui_labels` block and must honour the same formatting.
+ *
+ * **Wrap, never shorten.** PaSO View §2: "The Wallet MUST NOT truncate, elide, or otherwise
+ * shorten a label; it MAY wrap a label across multiple lines provided the text remains
+ * visible in full", and §2 again: it "MUST NOT rely on platform default controls that
+ * truncate or ellipsize overflowing text." Compose's defaults happen to satisfy this, which
+ * is exactly why the three parameters are written out: the requirement is then visible at
+ * the one place a future edit would break it, instead of being an accident of the toolkit.
+ * §5.2 explains the stake — "attacker-influenced text truncates to attacker-chosen
+ * prefixes", so a label cut after "Confirm payment of €1.00" hides its own continuation.
  */
 @Composable
 fun LabelText(
@@ -221,6 +237,9 @@ fun LabelText(
         style = style,
         color = color,
         fontWeight = fontWeight,
+        softWrap = true,
+        overflow = TextOverflow.Clip,
+        maxLines = Int.MAX_VALUE,
         modifier = modifier,
     )
 }
@@ -314,7 +333,7 @@ internal fun renderMiniMarkdown(input: String): AnnotatedString =
  * still read as one family; only the severity tier differs.
  */
 @Composable
-private fun SecurityHintBanner(hint: String) {
+internal fun SecurityHintBanner(hint: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -338,6 +357,9 @@ private fun SecurityHintBanner(hint: String) {
                 text = hint,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
+                softWrap = true,
+                overflow = TextOverflow.Clip,
+                maxLines = Int.MAX_VALUE,
             )
         }
     }

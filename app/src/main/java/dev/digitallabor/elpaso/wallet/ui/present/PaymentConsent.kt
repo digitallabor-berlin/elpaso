@@ -53,6 +53,7 @@ import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
 import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
 import dev.digitallabor.elpaso.wallet.presentation.txdata.formatIsoCurrencyAmount
+import dev.digitallabor.elpaso.wallet.presentation.txdata.SecurityHintBanner
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.RenderedLabel
 import dev.digitallabor.elpaso.wallet.ui.common.TrustWarningCard
 import kotlinx.serialization.json.JsonPrimitive
@@ -195,10 +196,20 @@ internal fun PaymentConsentContent(
     authorizeLabel: RenderedLabel?,
     authorizeFallback: String,
     denialLabel: RenderedLabel?,
+    /**
+     * The issuer's `security_hint` for this transaction, or null when the metadata carries
+     * none. PaSO View §2 counts it among the "populated UI elements" that must have been
+     * displayed before the confirmation action is enabled.
+     */
+    securityHint: String?,
     onAuthorize: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val scroll = rememberScrollState()
+    // Hoisted rather than inlined into the `&&` below: a composable behind a short-circuit
+    // is only invoked when the earlier operands hold, which would make the scroll
+    // observation come and go with the verifier's trust state.
+    val contentReviewed = rememberContentReviewed(scroll)
     Column(
         modifier =
             Modifier
@@ -211,6 +222,13 @@ internal fun PaymentConsentContent(
         AmountHero(summary = summary)
 
         RequesterLine(verifierName = verifierName, trusted = trusted)
+
+        // Sits above the untrusted notice so the two warnings stack by severity, the same
+        // order the generic consent screen uses. Rendered with the shared banner rather
+        // than a payment-specific one: an issuer's hint must look identical wherever the
+        // wallet shows it, or the visual difference itself becomes something to imitate
+        // (§5.4, wallet chrome spoofing).
+        securityHint?.let { SecurityHintBanner(it) }
 
         if (!trusted) {
             UntrustedNotice()
@@ -246,7 +264,9 @@ internal fun PaymentConsentContent(
             authorizeLabel = authorizeLabel,
             authorizeFallback = authorizeFallback,
             denialLabel = denialLabel,
-            authorizeEnabled = candidates.isNotEmpty() && trusted,
+            // §2: the confirmation action is enabled only once the content — the hint
+            // included — has actually been displayed. See `rememberContentReviewed`.
+            authorizeEnabled = candidates.isNotEmpty() && trusted && contentReviewed,
             onAuthorize = onAuthorize,
             onCancel = onCancel,
         )
