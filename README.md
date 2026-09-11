@@ -158,7 +158,7 @@ gradle :app:testDebugUnitTest
 Both throw `NullPointerException` because they call `android.util.Base64`, which the
 JVM unit-test stub returns `null` from (`testOptions.unitTests.isReturnDefaultValues
 = true`). This is expected. **A green run is those two failures and nothing else** — at
-the time of writing that prints `359 tests completed, 2 failed`, but the total grows as
+the time of writing that prints `526 tests completed, 2 failed`, but the total grows as
 tests are added, so check the failure names rather than the count. Do not "fix" them by
 mocking unless you are actually changing `TransactionData`.
 
@@ -383,6 +383,23 @@ Nimbus JOSE+JWT, BouncyCastle, CameraX + ML Kit barcode, Coil.
 
 This is a production-leaning proof of concept. These are the sharp edges:
 
+- **DC API auto-authorize skips the strict `transaction_data` gate entirely.** When the
+  Digital Credentials API preselects exactly one candidate for a trusted verifier and no
+  entry carries ad-hoc `metadata`, the wallet goes straight to the biometric prompt without
+  ever building a `RenderPlan`. `TransactionDataCompatibilityChecker` is reached only from
+  `ResolvedContent`, which that path never composes — so an entry PaSO View §2–§4 would
+  refuse is signed anyway, and an issuer-signed `security_hint` is never displayed even
+  though §2 requires it before the confirmation action is enabled. Closing this means
+  moving the auto-authorize decision *below* plan construction rather than above it.
+- **The wallet's `transaction_title` bound is a calibration, not a measurement.** PaSO
+  Proof Metadata §3.3 permits 100 grapheme clusters; the title renders in a fixed-height
+  `CenterAlignedTopAppBar`, so `RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX` refuses
+  anything over 40 — View §2 makes a label that cannot be shown in full an incompatible
+  entry, and refusing is the only permitted outcome. That 40 approximates two wrapped lines
+  at *default* text scale on a ~360dp screen and has **not** been verified on a device; at
+  larger accessibility scales a conforming 40-cluster title still clips. It narrows the
+  violation rather than closing it. The real fixes are a lower cap in the spec or moving
+  the title into scrolling content where it can wrap freely.
 - **The presentation audit log is recorded but never shown.** Every OpenID4VP
   exchange writes a row (verifier, fields disclosed, outcome, timestamp) and no
   screen reads it. This is deliberate — the history UI was cut rather than shipped
