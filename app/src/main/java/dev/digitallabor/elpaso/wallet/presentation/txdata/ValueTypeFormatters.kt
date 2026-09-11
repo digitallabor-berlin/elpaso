@@ -26,9 +26,14 @@ import java.util.Locale
  * except `mini_markdown` (which is exposed as a separate kind so the renderer can
  * apply inline emphasis) and `image` (which needs a Composable to load).
  *
- * Unknown value types fall back to plain text — the spec says the wallet **SHALL**
- * exclude the entry, but for the demo's additive stance we render plain text and
- * log instead of rejecting.
+ * **This object formats; it does not decide compatibility.** Whether a `value_type` is
+ * supported at all, and whether a value conforms to the one it declares, is settled by
+ * [dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataValidator]
+ * before anything reaches here — PaSO Core §7.4.2 puts that verdict in entry selection,
+ * not in rendering. An earlier version of this file documented a deliberate deviation
+ * ("the spec says the wallet SHALL exclude the entry, but for the demo's additive stance
+ * we render plain text and log instead of rejecting"). That is no longer the wallet's
+ * position: a non-conforming entry is refused outright, and not behind `developerMode`.
  */
 object ValueTypeFormatters {
 
@@ -56,6 +61,17 @@ object ValueTypeFormatters {
     const val MINI_MARKDOWN = "mini_markdown"
     const val URL = "url"
     const val TEMPLATE_PREFIX = "template:"
+
+    /**
+     * The ISO 20022 frequency codes `frequency` admits (paso-view.md §3). Exposed so the
+     * validator can reject a non-conforming code without duplicating the list — a second
+     * copy would eventually disagree with the one the formatter actually uses.
+     *
+     * Deliberately a getter, not a `val` initialiser: it is declared above the map it
+     * reads, and an eager initialiser here would run before that map exists.
+     */
+    val FREQUENCY_CODES: Set<String>
+        get() = FREQUENCY_EN.keys
 
     /**
      * Formats a [value] from the transaction_data payload according to [valueType].

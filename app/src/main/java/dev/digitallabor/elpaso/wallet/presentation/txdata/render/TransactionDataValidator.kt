@@ -4,10 +4,21 @@ import dev.digitallabor.elpaso.wallet.domain.model.ClaimDisplay
 import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
+import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import java.net.IDN
+import java.net.URI
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZonedDateTime
+import java.util.Currency
+import java.util.Locale
 
 /**
  * Decides whether one `transaction_data` entry is compatible with the credential whose
@@ -95,10 +106,12 @@ class TransactionDataValidator(
                         .onBad { return it }
                 }
 
-            // Value formatting and conformance are not this task's concern; the raw value
-            // is carried through so the row exists, and the strict value-type pass replaces it.
             val raw = resolve(payload, claim.path.filterNotNull())
-            rows += RenderRow(label = label, value = RenderedValue.Text(FormattedText.Plain(rawText(raw))))
+            when (val outcome = valueOutcome(claim, raw, selection.locale, where)) {
+                is ValueOutcome.Bad -> return outcome.reason.asResult()
+                is ValueOutcome.Absent -> Unit // optional claim, no value present: no row, no error
+                is ValueOutcome.Ok -> rows += RenderRow(label = label, value = outcome.value)
+            }
         }
 
         val uiElementCount = listOfNotNull(title, affirmative, denial).size + if (hintEntry != null) 1 else 0
@@ -249,6 +262,227 @@ class TransactionDataValidator(
 
     private fun rawText(value: JsonElement?): String = (value as? JsonPrimitive)?.contentOrNull.orEmpty()
 
+    // --- Value types (paso-view.md §3) ---
+
+    private sealed interface ValueOutcome {
+        data class Ok(val value: RenderedValue) : ValueOutcome
+
+        data class Bad(val reason: IncompatibilityReason) : ValueOutcome
+
+        /** An optional claim whose field is absent: there is no row, and that is not an error. */
+        data object Absent : ValueOutcome
+    }
+
+    /**
+     * Decides whether [raw] conforms to [claim]'s declared `value_type`, and if so how it
+     * renders.
+     *
+     * Two failure codes are kept distinct because they mean different things to whoever
+     * reads the log. `UNSUPPORTED_VALUE_TYPE` says the wallet does not implement the type
+     * the issuer asked for — an interop gap. `VALUE_TYPE_MISMATCH` says the verifier's
+     * value does not match a type the wallet does implement — a malformed request.
+     */
+    private fun valueOutcome(
+        claim: ClaimMetadata,
+        raw: JsonElement?,
+        locale: Locale,
+        where: String,
+    ): ValueOutcome {
+        val declared = claim.valueType
+
+        // `label_only` carries its meaning entirely in the label, so it is the one type
+        // that renders without reading the payload. §3 forbids it on a mandatory claim:
+        // "required" would assert the presence of a value nobody ever displays.
+        if (declared == ValueTypeFormatters.LABEL_ONLY) {
+            return if (claim.mandatory) {
+                bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is label_only and must not be mandatory")
+            } else {
+                ValueOutcome.Ok(RenderedValue.LabelOnly)
+            }
+        }
+
+        // `template:<inner>` composes: the interpolation pass fills the placeholders, and
+        // the inner type decides how the result is formatted. Only the inner type needs to
+        // be supported.
+        val effective =
+            if (declared != null && declared.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX)) {
+                declared.removePrefix(ValueTypeFormatters.TEMPLATE_PREFIX)
+            } else {
+                declared
+            }
+        if (effective != null && effective !in SUPPORTED_VALUE_TYPES) {
+            return bad(
+                IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
+                "$where declares unsupported value_type '$declared'",
+            )
+        }
+
+        if (raw == null) return ValueOutcome.Absent
+
+        val text = rawText(raw)
+        val isString = raw is JsonPrimitive && raw.isString
+
+        return when (effective) {
+            // §3.1: "If omitted, the value is treated as plain text and MUST be a string."
+            null ->
+                if (isString) {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(text)))
+                } else {
+                    bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where has no value_type, so its value must be a string")
+                }
+
+            ValueTypeFormatters.BOOLEAN ->
+                if ((raw as? JsonPrimitive)?.booleanOrNull != null) {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(ValueTypeFormatters.formatBoolean(raw, locale).text)))
+                } else {
+                    bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not a JSON boolean")
+                }
+
+            ValueTypeFormatters.FREQUENCY ->
+                if (text.trim().uppercase(Locale.ROOT) in ValueTypeFormatters.FREQUENCY_CODES) {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(ValueTypeFormatters.formatFrequency(text, locale).text)))
+                } else {
+                    bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not an ISO 20022 frequency code")
+                }
+
+            ValueTypeFormatters.ISO_DATE ->
+                parsedAs(text, where, { LocalDate.parse(it) }, { ValueTypeFormatters.formatIsoDate(it, locale).text })
+
+            ValueTypeFormatters.ISO_TIME ->
+                parsedAs(text, where, { LocalTime.parse(it) }, { ValueTypeFormatters.formatIsoTime(it, locale).text })
+
+            ValueTypeFormatters.ISO_DATE_TIME ->
+                parsedAs(text, where, { parseDateTime(it) }, { ValueTypeFormatters.formatIsoDateTime(it, locale).text })
+
+            ValueTypeFormatters.ISO_CURRENCY ->
+                parsedAs(text, where, { Currency.getInstance(it.trim()) }, { ValueTypeFormatters.formatIsoCurrency(it, locale).text })
+
+            ValueTypeFormatters.ISO_CURRENCY_AMOUNT ->
+                ValueTypeFormatters.formatIsoCurrencyAmount(text, locale)?.let {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(it)))
+                } ?: bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not an '<amount> <ISO4217>' string")
+
+            ValueTypeFormatters.MINI_MARKDOWN ->
+                if (isString) {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Markdown(text)))
+                } else {
+                    bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string")
+                }
+
+            ValueTypeFormatters.URL -> urlOutcome(text, where)
+
+            // Image source shape — data-URL decoding, the mandatory `#integrity` sibling,
+            // the size and dimension caps — is its own pass. All that is settled here is
+            // that the value is a string; no image row is consumed before that pass lands.
+            ValueTypeFormatters.IMAGE ->
+                if (isString) {
+                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(text)))
+                } else {
+                    bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string URL or data URL")
+                }
+
+            else -> bad(IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE, "$where declares unsupported value_type '$declared'")
+        }
+    }
+
+    /**
+     * PaSO View §3 `url`: the scheme MUST be `https`; the wallet SHALL display the full
+     * URL and MUST NOT replace or obscure it with alternative text. So `href` and the
+     * displayed string differ only where the SHOULD on homograph confusion applies.
+     */
+    private fun urlOutcome(
+        raw: String,
+        where: String,
+    ): ValueOutcome {
+        val uri = runCatching { URI(raw) }.getOrNull()
+        if (uri?.scheme?.lowercase(Locale.ROOT) != HTTPS) {
+            return bad(IncompatibilityReason.Code.URL_NOT_HTTPS, "$where must use the https scheme")
+        }
+        return ValueOutcome.Ok(RenderedValue.Link(href = raw, display = punycodeHost(raw, uri)))
+    }
+
+    /**
+     * Shows a non-ASCII host in punycode, leaving the rest of the URL untouched.
+     *
+     * This is the §3 SHOULD on homograph confusion: an internationalised domain can be
+     * assembled from characters that render identically to another domain's, and punycode
+     * is the form in which that difference becomes visible.
+     */
+    private fun punycodeHost(
+        raw: String,
+        uri: URI,
+    ): String {
+        val host = uri.host ?: uri.authority ?: return raw
+        if (host.all { it.code < 0x80 }) return raw
+        val ascii = runCatching { IDN.toASCII(host) }.getOrNull() ?: return raw
+        return raw.replaceFirst(host, ascii)
+    }
+
+    /** §3 `iso_date_time` accepts an offset, a zone, or neither. */
+    private fun parseDateTime(raw: String): Any =
+        runCatching { OffsetDateTime.parse(raw) }.getOrNull()
+            ?: runCatching { ZonedDateTime.parse(raw) }.getOrNull()
+            ?: LocalDateTime.parse(raw)
+
+    /** Conformance by parsing: if the type's own parser rejects the text, the value does not conform. */
+    private inline fun parsedAs(
+        text: String,
+        where: String,
+        parse: (String) -> Any,
+        format: (String) -> String,
+    ): ValueOutcome =
+        if (runCatching { parse(text) }.isSuccess) {
+            ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(format(text))))
+        } else {
+            bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where does not parse as its declared value_type")
+        }
+
+    private fun bad(
+        code: IncompatibilityReason.Code,
+        detail: String,
+    ): ValueOutcome = ValueOutcome.Bad(reason(code, detail))
+
+    /**
+     * §3.3 applies the directional-character prohibition to `transaction_data` payload
+     * string values, not only to labels, and View §2 makes the wallet exclude an entry
+     * whose formatted values carry them.
+     *
+     * This is the half a *verifier* controls, which is why it matters: a directional
+     * override inside an amount can make the rendered string read as a different number
+     * than the one being signed.
+     */
+    private fun payloadCharacterViolation(payload: JsonObject): IncompatibilityReason? {
+        for ((path, value) in stringValues(payload)) {
+            if (LabelText.hasDirectionalOverride(value)) {
+                return reason(
+                    IncompatibilityReason.Code.PAYLOAD_DIRECTIONAL_OVERRIDE,
+                    "payload field '$path' contains a directional embedding or override character",
+                )
+            }
+            if (!LabelText.hasBalancedIsolates(value)) {
+                return reason(
+                    IncompatibilityReason.Code.PAYLOAD_DIRECTIONAL_OVERRIDE,
+                    "payload field '$path' contains an unterminated directional isolate",
+                )
+            }
+        }
+        return null
+    }
+
+    private fun stringValues(
+        element: JsonElement,
+        prefix: String = "",
+    ): List<Pair<String, String>> =
+        when {
+            element is JsonObject ->
+                element.flatMap { (key, child) ->
+                    stringValues(child, if (prefix.isEmpty()) key else "$prefix.$key")
+                }
+
+            element is JsonPrimitive && element.isString -> listOf(prefix to element.content)
+            else -> emptyList()
+        }
+
     // --- Structural constraints (paso-proof-metadata.md §3.3) ---
 
     /**
@@ -269,6 +503,15 @@ class TransactionDataValidator(
             val key = claim.path.renderKey()
             if (!seenPaths.add(key)) {
                 return reason(IncompatibilityReason.Code.DUPLICATE_CLAIM_PATH, "duplicate claim path '$key'")
+            }
+            // §3.1: "The `value_type` parameter MUST NOT be used on claims without a
+            // `display` array." Such a claim is an internal value irrelevant to consent,
+            // so declaring how to display it is metadata contradicting itself.
+            if (claim.valueType != null && claim.display.isEmpty()) {
+                return reason(
+                    IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE,
+                    "claim '$key' declares value_type '${claim.valueType}' but has no display array",
+                )
             }
         }
 
@@ -320,6 +563,7 @@ class TransactionDataValidator(
         metadata: TransactionDataTypeMetadata,
         payload: JsonObject,
     ): IncompatibilityReason? {
+        payloadCharacterViolation(payload)?.let { return it }
         coverageViolation(metadata.claims, payload)?.let { return it }
 
         for (claim in metadata.claims) {
@@ -415,6 +659,29 @@ class TransactionDataValidator(
         const val INTEGRITY_SUFFIX = "#integrity"
         const val MINI_MARKDOWN = "mini_markdown"
         const val TEMPLATE_MINI_MARKDOWN = "template:mini_markdown"
+        const val HTTPS = "https"
+
+        /**
+         * Every `value_type` PaSO View §3 defines.
+         *
+         * Closed on purpose: §3 makes a type the wallet does not support an incompatible
+         * entry, so "unknown to this spec" and "unsupported by this wallet" are the same
+         * verdict and there is deliberately no default-to-plain-text branch.
+         */
+        val SUPPORTED_VALUE_TYPES =
+            setOf(
+                ValueTypeFormatters.BOOLEAN,
+                ValueTypeFormatters.FREQUENCY,
+                ValueTypeFormatters.IMAGE,
+                ValueTypeFormatters.ISO_DATE,
+                ValueTypeFormatters.ISO_TIME,
+                ValueTypeFormatters.ISO_DATE_TIME,
+                ValueTypeFormatters.ISO_CURRENCY,
+                ValueTypeFormatters.ISO_CURRENCY_AMOUNT,
+                ValueTypeFormatters.LABEL_ONLY,
+                ValueTypeFormatters.MINI_MARKDOWN,
+                ValueTypeFormatters.URL,
+            )
 
         /**
          * §3.3: "A `display` entry's `display_type` and a `ui_labels` entry's `value_type`

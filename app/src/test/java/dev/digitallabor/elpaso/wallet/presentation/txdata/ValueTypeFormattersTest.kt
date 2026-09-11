@@ -35,11 +35,13 @@ class ValueTypeFormattersTest {
         assertEquals(ValueTypeFormatters.Formatted.PlainText("Wöchentlich"), de)
     }
 
-    @Test
-    fun unknownFrequencyCodePassesThrough() {
-        val out = ValueTypeFormatters.format(JsonPrimitive("XXXX"), ValueTypeFormatters.FREQUENCY, Locale.ENGLISH)
-        assertEquals(ValueTypeFormatters.Formatted.PlainText("XXXX"), out)
-    }
+    // `unknownFrequencyCodePassesThrough` and `unknownValueTypeRendersAsPlainText` were
+    // deleted here. Both asserted the wallet's former permissive stance — render whatever
+    // you don't understand as plain text — as though it were a contract. PaSO View §3 makes
+    // an unsupported `value_type` or a non-conforming value an *incompatible entry*, and
+    // that verdict now belongs to TransactionDataValidator, which is where the replacement
+    // assertions live: TransactionDataValidatorValueTypeTest.badFrequencyCodeIsIncompatible
+    // and .unsupportedValueTypeIsIncompatible.
 
     @Test
     fun labelOnlyReturnsLabelOnlyMarker() {
@@ -67,12 +69,6 @@ class ValueTypeFormattersTest {
     fun nullValueFormatsToEmpty() {
         assertEquals(ValueTypeFormatters.Formatted.PlainText(""), ValueTypeFormatters.format(null, null, Locale.ENGLISH))
         assertEquals(ValueTypeFormatters.Formatted.PlainText(""), ValueTypeFormatters.format(JsonNull, null, Locale.ENGLISH))
-    }
-
-    @Test
-    fun unknownValueTypeRendersAsPlainText() {
-        val out = ValueTypeFormatters.format(JsonPrimitive("hello"), "custom_type_we_dont_know", Locale.ENGLISH)
-        assertEquals(ValueTypeFormatters.Formatted.PlainText("hello"), out)
     }
 
     @Test
