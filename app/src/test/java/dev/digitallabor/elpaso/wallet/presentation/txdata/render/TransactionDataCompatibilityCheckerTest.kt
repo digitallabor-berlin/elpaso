@@ -251,6 +251,33 @@ class TransactionDataCompatibilityCheckerTest {
         }
 
     /**
+     * The composable's whole contract, stated as a test: **no plan that escapes the checker
+     * contains an unresolved image.** `DynamicTransactionDataBlock` feeds Coil a `ByteArray`
+     * through a loader with no network component, so a `Remote` reaching it would render as
+     * nothing at all — a silently missing image on a consent screen.
+     *
+     * A data URL satisfies that without any fetch, and `neverFetches` turns one into a test
+     * failure if it ever happens: bytes already in hand must not cause network traffic.
+     */
+    @Test
+    fun dataUrlImageStaysInlineWithoutFetching() =
+        runTest {
+            val bytes = png()
+            val dataUrl = "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes)
+            val payload = buildJsonObject { put("logo", JsonPrimitive(dataUrl)) }
+
+            val r = checker().check(imageMetadata(), payload, listOf(Locale.ENGLISH))
+
+            val plan = (r as ValidationResult.Compatible).plan
+            assertTrue(
+                "no image may leave the checker unresolved",
+                plan.rows.none { (it.value as? RenderedValue.Image)?.source is ImageSource.Remote },
+            )
+            val source = (plan.rows.single().value as RenderedValue.Image).source
+            assertTrue(bytes.contentEquals((source as ImageSource.Inline).bytes))
+        }
+
+    /**
      * §3: a non-conforming image "makes the `transaction_data` entry not compatible" — the
      * entry is refused whole. Dropping just the image row would have the user approve a
      * screen missing something the issuer put there, without being told anything was gone.

@@ -27,6 +27,33 @@ import java.util.Locale
  * becomes a render row in the first place.
  */
 class ImageSourceTest {
+    /**
+     * A PNG header the dimension reader can actually parse.
+     *
+     * The obvious stub — `iVBORw0KGgo=`, the 8-byte signature and nothing else — is still
+     * fine for testing [DataUrl] itself, which only decodes base64. It is *not* fine once a
+     * data URL reaches the validator: PaSO View §3 caps decoded dimensions at 2048px for
+     * "the Data URL payload or the resolved content" alike, and content whose dimensions
+     * cannot be established is refused rather than assumed conformant.
+     */
+    private fun pngDataUrl(
+        width: Int = 48,
+        height: Int = 48,
+    ): String {
+        fun be32(v: Int) = byteArrayOf((v ushr 24).toByte(), (v ushr 16).toByte(), (v ushr 8).toByte(), v.toByte())
+        val bytes =
+            java.io.ByteArrayOutputStream()
+                .apply {
+                    write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+                    write(be32(13))
+                    write("IHDR".toByteArray())
+                    write(be32(width))
+                    write(be32(height))
+                    write(byteArrayOf(8, 6, 0, 0, 0))
+                }.toByteArray()
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes)
+    }
+
     // --- RFC2397 data URLs ---
 
     @Test
@@ -191,7 +218,7 @@ class ImageSourceTest {
 
     @Test
     fun dataUrlImageProducesInlineBytes() {
-        val payload = buildJsonObject { put("logo", JsonPrimitive("data:image/png;base64,iVBORw0KGgo=")) }
+        val payload = buildJsonObject { put("logo", JsonPrimitive(pngDataUrl())) }
         val source = imageOf(validate(imgMd(), payload))
         assertTrue("a data URL needs no network and must arrive as bytes", source is ImageSource.Inline)
         assertEquals("image/png", (source as ImageSource.Inline).mediaType)

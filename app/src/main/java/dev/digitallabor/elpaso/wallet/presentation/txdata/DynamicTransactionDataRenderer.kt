@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,7 +31,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.svg.SvgDecoder
 import dev.digitallabor.elpaso.wallet.R
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.FormattedText
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.ImageSource
@@ -80,11 +84,40 @@ fun DynamicTransactionDataBlock(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                plan.rows.forEach { row -> ClaimRow(row) }
+                val imageLoader = rememberVerifiedBytesImageLoader()
+                plan.rows.forEach { row -> ClaimRow(row, imageLoader) }
             }
         }
 
         plan.securityHint?.let { SecurityHintBanner(it) }
+    }
+}
+
+/**
+ * A loader that can decode an image but cannot fetch one.
+ *
+ * Deliberately **not** the app's singleton loader. That one is built in `ElPasoApp` with
+ * `KtorNetworkFetcherFactory(httpClient)` over the shared client — the one that logs full
+ * URLs, headers and bodies — because it exists to load issuer logos. Pointing it at
+ * `transaction_data` content would hand a verifier-named host the wallet's general-purpose
+ * HTTP stack.
+ *
+ * Registering no network component at all is what makes PaSO View §3's "external resources
+ * SHALL NOT be loaded" a property of the wiring rather than of the argument that happens to
+ * be passed. Every image reaching here is already [ImageSource.Inline] — bytes fetched and
+ * hash-verified by `ImageResolver`, or decoded from a data URL — so the only fetch this
+ * loader could perform would be one nobody verified. `SvgDecoder` (AndroidSVG) renders a
+ * single static frame, which is the rest of §3's SVG rule: no script, no animation, no
+ * interactivity.
+ */
+@Composable
+private fun rememberVerifiedBytesImageLoader(): ImageLoader {
+    val context = LocalPlatformContext.current
+    return remember(context) {
+        ImageLoader
+            .Builder(context)
+            .components { add(SvgDecoder.Factory()) }
+            .build()
     }
 }
 
@@ -94,7 +127,10 @@ fun DynamicTransactionDataBlock(
  * arrange).
  */
 @Composable
-private fun ClaimRow(row: RenderRow) {
+private fun ClaimRow(
+    row: RenderRow,
+    imageLoader: ImageLoader,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         row.label?.let { label ->
             LabelText(
@@ -113,17 +149,28 @@ private fun ClaimRow(row: RenderRow) {
             is RenderedValue.Image -> {
                 when (val source = value.source) {
                     is ImageSource.Inline -> {
+                        // The model is a ByteArray, never a URL. Combined with a loader that
+                        // has no network component, there is no path by which drawing this
+                        // row performs I/O. The bounded height is §3's "an image SHALL NOT
+                        // overlay or displace other transaction data or Wallet controls" —
+                        // images are informational, so they may not crowd out the fields the
+                        // user is actually consenting to.
                         AsyncImage(
                             model = source.bytes,
+                            imageLoader = imageLoader,
                             contentDescription = row.label?.plainText(),
                             modifier = Modifier.fillMaxWidth().height(160.dp),
                         )
                     }
 
-                    // A remote image only becomes renderable once its bytes have been
-                    // fetched and checked against the issuer-signed hash. Until that
-                    // resolution step exists, showing the URL's content would be showing
-                    // unverified bytes, so the row holds its space and shows nothing.
+                    // Unreachable by construction. TransactionDataCompatibilityChecker runs
+                    // §7.4.2 step 3 before any plan escapes it, so every image in a plan is
+                    // Inline; a fetch that failed made the whole entry incompatible and this
+                    // composable was never called. The branch exists only because RenderPlan
+                    // also models the pre-resolution state the checker works on internally,
+                    // and `TransactionDataCompatibilityCheckerTest` is what holds the
+                    // invariant. Drawing nothing is the right residual behaviour: the
+                    // alternative is showing bytes nobody verified.
                     is ImageSource.Remote -> {
                         Unit
                     }

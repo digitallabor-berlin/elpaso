@@ -254,4 +254,62 @@ class TransactionDataValidatorValueTypeTest {
         val value = valueOf(validate(md(null), payloadOf(JsonPrimitive("Merchant Ltd"))))
         assertEquals(RenderedValue.Text(FormattedText.Plain("Merchant Ltd")), value)
     }
+
+    // --- Data-URL images: §3's caps apply to these too ---
+    //
+    // "An image — the Data URL payload **or** the resolved content — MUST NOT exceed
+    // 512 KiB in encoded size, and its decoded dimensions MUST NOT exceed 2048 pixels in
+    // either direction." The size half was enforced from the start; the dimension half
+    // could not be, because nothing could read dimensions without `android.graphics`.
+    // A data URL needs no fetch, so unlike a remote image this is settled right here.
+
+    private fun pngDataUrl(
+        width: Int,
+        height: Int,
+    ): String {
+        fun be32(v: Int) = byteArrayOf((v ushr 24).toByte(), (v ushr 16).toByte(), (v ushr 8).toByte(), v.toByte())
+        val bytes =
+            java.io.ByteArrayOutputStream()
+                .apply {
+                    write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+                    write(be32(13))
+                    write("IHDR".toByteArray())
+                    write(be32(width))
+                    write(be32(height))
+                    write(byteArrayOf(8, 6, 0, 0, 0))
+                }.toByteArray()
+        return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(bytes)
+    }
+
+    @Test
+    fun conformingDataUrlImageBecomesInlineBytes() {
+        val value = valueOf(validate(md("image"), payloadOf(JsonPrimitive(pngDataUrl(64, 64)))))
+        val source = (value as RenderedValue.Image).source
+        assertTrue("expected inline bytes, got $source", source is ImageSource.Inline)
+        assertEquals("image/png", (source as ImageSource.Inline).mediaType)
+    }
+
+    @Test
+    fun oversizeDataUrlDimensionsAreIncompatible() {
+        val r = validate(md("image"), payloadOf(JsonPrimitive(pngDataUrl(4096, 8))))
+        assertEquals(IncompatibilityReason.Code.IMAGE_DIMENSIONS, reasonOf(r))
+    }
+
+    @Test
+    fun dataUrlAtExactlyTheDimensionCapIsCompatible() {
+        val at = RenderLimits.IMAGE_MAX_DIMENSION_PX
+        val value = valueOf(validate(md("image"), payloadOf(JsonPrimitive(pngDataUrl(at, at)))))
+        assertTrue(value is RenderedValue.Image)
+    }
+
+    /**
+     * Same stance as the remote path: content whose dimensions cannot be established has
+     * not been shown to satisfy a MUST, so it is refused rather than drawn and hoped for.
+     */
+    @Test
+    fun dataUrlWhoseDimensionsCannotBeReadIsIncompatible() {
+        val truncated = "data:image/png;base64,iVBORw0KGgo="
+        val r = validate(md("image"), payloadOf(JsonPrimitive(truncated)))
+        assertEquals(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, reasonOf(r))
+    }
 }

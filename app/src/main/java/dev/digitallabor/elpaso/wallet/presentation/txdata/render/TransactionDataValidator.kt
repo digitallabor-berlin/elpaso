@@ -113,7 +113,10 @@ class TransactionDataValidator(
             val raw = resolve(payload, claim.path.filterNotNull())
             when (val outcome = valueOutcome(claim, raw, ctx, where, wildcards)) {
                 is ValueOutcome.Bad -> return outcome.reason.asResult()
-                is ValueOutcome.Absent -> Unit // optional claim, no value present: no row, no error
+
+                // An optional claim whose field is absent: no row, and that is not an error.
+                is ValueOutcome.Absent -> Unit
+
                 is ValueOutcome.Ok -> rows += RenderRow(label = label, value = outcome.value)
             }
         }
@@ -137,9 +140,13 @@ class TransactionDataValidator(
 
     /** Either a validated label, or the reason it is not one. */
     private sealed interface LabelOutcome {
-        data class Ok(val label: RenderedLabel?) : LabelOutcome
+        data class Ok(
+            val label: RenderedLabel?,
+        ) : LabelOutcome
 
-        data class Bad(val reason: IncompatibilityReason) : LabelOutcome
+        data class Bad(
+            val reason: IncompatibilityReason,
+        ) : LabelOutcome
     }
 
     /**
@@ -207,20 +214,25 @@ class TransactionDataValidator(
         val resolved =
             if (type != null && type.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX)) {
                 when (val out = templates.interpolate(text, ctx.claims, ctx.payload, ctx.locale, wildcards)) {
-                    is TemplateInterpolator.Outcome.Ok -> out.text
+                    is TemplateInterpolator.Outcome.Ok -> {
+                        out.text
+                    }
+
                     // A discarded locale entry means "try the next locale". Until §4's
                     // selection procedure exists there is no next locale to try, so it
                     // surfaces as no match at all.
-                    is TemplateInterpolator.Outcome.DiscardLocaleEntry ->
+                    is TemplateInterpolator.Outcome.DiscardLocaleEntry -> {
                         return LabelOutcome.Bad(
                             reason(
                                 IncompatibilityReason.Code.NO_LOCALE_MATCH,
                                 "$where references a claim absent from the payload",
                             ),
                         )
+                    }
 
-                    is TemplateInterpolator.Outcome.Incompatible ->
+                    is TemplateInterpolator.Outcome.Incompatible -> {
                         return LabelOutcome.Bad(reason(out.code, "$where has an invalid template reference"))
+                    }
                 }
             } else {
                 text
@@ -243,19 +255,27 @@ class TransactionDataValidator(
         where: String,
     ): IncompatibilityReason? =
         when {
-            LabelText.hasControlChar(text) ->
+            LabelText.hasControlChar(text) -> {
                 reason(IncompatibilityReason.Code.LABEL_CONTROL_CHAR, "$where contains a control character")
-            LabelText.hasDirectionalOverride(text) ->
+            }
+
+            LabelText.hasDirectionalOverride(text) -> {
                 reason(
                     IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
                     "$where contains a directional embedding or override character",
                 )
-            !LabelText.hasBalancedIsolates(text) ->
+            }
+
+            !LabelText.hasBalancedIsolates(text) -> {
                 reason(
                     IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
                     "$where contains an unterminated directional isolate",
                 )
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
 
     private fun lengthViolation(
@@ -279,9 +299,13 @@ class TransactionDataValidator(
     // --- Value types (paso-view.md §3) ---
 
     private sealed interface ValueOutcome {
-        data class Ok(val value: RenderedValue) : ValueOutcome
+        data class Ok(
+            val value: RenderedValue,
+        ) : ValueOutcome
 
-        data class Bad(val reason: IncompatibilityReason) : ValueOutcome
+        data class Bad(
+            val reason: IncompatibilityReason,
+        ) : ValueOutcome
 
         /** An optional claim whose field is absent: there is no row, and that is not an error. */
         data object Absent : ValueOutcome
@@ -348,15 +372,20 @@ class TransactionDataValidator(
                     return bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is a template and must be a string")
                 }
                 when (val out = templates.interpolate(rawText(raw), ctx.claims, ctx.payload, locale, wildcards)) {
-                    is TemplateInterpolator.Outcome.Ok -> out.text
-                    is TemplateInterpolator.Outcome.DiscardLocaleEntry ->
+                    is TemplateInterpolator.Outcome.Ok -> {
+                        out.text
+                    }
+
+                    is TemplateInterpolator.Outcome.DiscardLocaleEntry -> {
                         return bad(
                             IncompatibilityReason.Code.NO_LOCALE_MATCH,
                             "$where references a claim absent from the payload",
                         )
+                    }
 
-                    is TemplateInterpolator.Outcome.Incompatible ->
+                    is TemplateInterpolator.Outcome.Incompatible -> {
                         return bad(out.code, "$where has an invalid template reference")
+                    }
                 }
             } else {
                 rawText(raw)
@@ -364,64 +393,78 @@ class TransactionDataValidator(
 
         return when (effective) {
             // §3.1: "If omitted, the value is treated as plain text and MUST be a string."
-            null ->
+            null -> {
                 if (isString) {
                     ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(text)))
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where has no value_type, so its value must be a string")
                 }
+            }
 
-            ValueTypeFormatters.BOOLEAN ->
+            ValueTypeFormatters.BOOLEAN -> {
                 if ((raw as? JsonPrimitive)?.booleanOrNull != null) {
                     ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(ValueTypeFormatters.formatBoolean(raw, locale).text)))
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not a JSON boolean")
                 }
+            }
 
-            ValueTypeFormatters.FREQUENCY ->
+            ValueTypeFormatters.FREQUENCY -> {
                 if (text.trim().uppercase(Locale.ROOT) in ValueTypeFormatters.FREQUENCY_CODES) {
                     ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(ValueTypeFormatters.formatFrequency(text, locale).text)))
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not an ISO 20022 frequency code")
                 }
+            }
 
-            ValueTypeFormatters.ISO_DATE ->
+            ValueTypeFormatters.ISO_DATE -> {
                 parsedAs(text, where, { LocalDate.parse(it) }, { ValueTypeFormatters.formatIsoDate(it, locale).text })
+            }
 
-            ValueTypeFormatters.ISO_TIME ->
+            ValueTypeFormatters.ISO_TIME -> {
                 parsedAs(text, where, { LocalTime.parse(it) }, { ValueTypeFormatters.formatIsoTime(it, locale).text })
+            }
 
-            ValueTypeFormatters.ISO_DATE_TIME ->
+            ValueTypeFormatters.ISO_DATE_TIME -> {
                 parsedAs(text, where, { parseDateTime(it) }, { ValueTypeFormatters.formatIsoDateTime(it, locale).text })
+            }
 
-            ValueTypeFormatters.ISO_CURRENCY ->
+            ValueTypeFormatters.ISO_CURRENCY -> {
                 parsedAs(text, where, { Currency.getInstance(it.trim()) }, { ValueTypeFormatters.formatIsoCurrency(it, locale).text })
+            }
 
-            ValueTypeFormatters.ISO_CURRENCY_AMOUNT ->
+            ValueTypeFormatters.ISO_CURRENCY_AMOUNT -> {
                 ValueTypeFormatters.formatIsoCurrencyAmount(text, locale)?.let {
                     ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(it)))
                 } ?: bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is not an '<amount> <ISO4217>' string")
+            }
 
-            ValueTypeFormatters.MINI_MARKDOWN ->
+            ValueTypeFormatters.MINI_MARKDOWN -> {
                 if (isString) {
                     ValueOutcome.Ok(RenderedValue.Text(FormattedText.Markdown(text)))
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string")
                 }
+            }
 
-            ValueTypeFormatters.URL -> urlOutcome(text, where)
+            ValueTypeFormatters.URL -> {
+                urlOutcome(text, where)
+            }
 
             // Image source shape — data-URL decoding, the mandatory `#integrity` sibling,
             // the size and dimension caps — is its own pass. All that is settled here is
             // that the value is a string; no image row is consumed before that pass lands.
-            ValueTypeFormatters.IMAGE ->
+            ValueTypeFormatters.IMAGE -> {
                 if (isString) {
                     imageOutcome(text, claim, ctx, where)
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string URL or data URL")
                 }
+            }
 
-            else -> bad(IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE, "$where declares unsupported value_type '$declared'")
+            else -> {
+                bad(IncompatibilityReason.Code.UNSUPPORTED_VALUE_TYPE, "$where declares unsupported value_type '$declared'")
+            }
         }
     }
 
@@ -506,14 +549,21 @@ class TransactionDataValidator(
             // than that multiple of the cap cannot decode to a conforming image, and
             // decoding it first would do a verifier's allocation work for it.
             if (raw.length > RenderLimits.IMAGE_MAX_ENCODED_BYTES * 4 / 3 + DATA_URL_HEADER_SLACK) {
-                return bad(IncompatibilityReason.Code.IMAGE_TOO_LARGE, "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap")
+                return bad(
+                    IncompatibilityReason.Code.IMAGE_TOO_LARGE,
+                    "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap",
+                )
             }
             val decoded =
                 DataUrl.parse(raw)
                     ?: return bad(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, "$where is not a well-formed data URL")
             if (decoded.bytes.size > RenderLimits.IMAGE_MAX_ENCODED_BYTES) {
-                return bad(IncompatibilityReason.Code.IMAGE_TOO_LARGE, "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap")
+                return bad(
+                    IncompatibilityReason.Code.IMAGE_TOO_LARGE,
+                    "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap",
+                )
             }
+            dimensionViolation(decoded.bytes, where)?.let { return ValueOutcome.Bad(it) }
             return ValueOutcome.Ok(RenderedValue.Image(ImageSource.Inline(decoded.bytes, decoded.mediaType)))
         }
 
@@ -530,6 +580,41 @@ class TransactionDataValidator(
             )
         }
         return ValueOutcome.Ok(RenderedValue.Image(ImageSource.Remote(raw, integrity)))
+    }
+
+    /**
+     * §3's decoded-dimension bound, applied to a data URL's own payload.
+     *
+     * The sentence covers both channels — "An image, the Data URL payload **or** the
+     * resolved content, MUST NOT exceed ... 2048 pixels in either direction" — but only
+     * the size half could be enforced when this branch was written, because reading
+     * dimensions meant `android.graphics` and that returns 0 under the module's JVM test
+     * stubs. [ImageDimensions] parses the header instead, so the bound now holds here as
+     * well as in [ImageResolver]. A data URL carries its own bytes, so unlike a remote
+     * image there is nothing to fetch and the verdict is reached synchronously.
+     *
+     * Content whose dimensions cannot be read is refused rather than admitted: it has not
+     * been shown to satisfy a MUST, and that is the same stance the remote path takes.
+     */
+    private fun dimensionViolation(
+        bytes: ByteArray,
+        where: String,
+    ): IncompatibilityReason? {
+        val size =
+            ImageDimensions.read(bytes)
+                ?: return reason(
+                    IncompatibilityReason.Code.IMAGE_INVALID_SOURCE,
+                    "$where has content whose dimensions could not be determined",
+                )
+        val max = RenderLimits.IMAGE_MAX_DIMENSION_PX
+        return if (size.width > max || size.height > max) {
+            reason(
+                IncompatibilityReason.Code.IMAGE_DIMENSIONS,
+                "$where is ${size.width}x${size.height}, over the ${max}px cap",
+            )
+        } else {
+            null
+        }
     }
 
     /**
@@ -578,13 +663,19 @@ class TransactionDataValidator(
         prefix: String = "",
     ): List<Pair<String, String>> =
         when {
-            element is JsonObject ->
+            element is JsonObject -> {
                 element.flatMap { (key, child) ->
                     stringValues(child, if (prefix.isEmpty()) key else "$prefix.$key")
                 }
+            }
 
-            element is JsonPrimitive && element.isString -> listOf(prefix to element.content)
-            else -> emptyList()
+            element is JsonPrimitive && element.isString -> {
+                listOf(prefix to element.content)
+            }
+
+            else -> {
+                emptyList()
+            }
         }
 
     // --- Structural constraints (paso-proof-metadata.md §3.3) ---
