@@ -74,6 +74,54 @@ class TransactionDataCompatibilityCheckerTest {
     }
 
     @Test
+    fun planReportsTheSelectedLocaleNotTheUsersFirstPreference() {
+        // The issuer publishes German only. A user whose first preference is English is
+        // shown German, so `display_locale` must say "de" — it is a statement about the
+        // screen that was approved, not about the setting the user picked.
+        val md =
+            TransactionDataTypeMetadata(
+                claims =
+                    listOf(
+                        ClaimMetadata(
+                            path = listOf("amount"),
+                            mandatory = true,
+                            valueType = "iso_currency_amount",
+                            display = listOf(ClaimDisplay("de", "Betrag", null)),
+                        ),
+                    ),
+                uiLabels = UiLabels(),
+            )
+        val payload = buildJsonObject { put("amount", JsonPrimitive("49.99 EUR")) }
+
+        val r = checker.check(md, payload, listOf(Locale.ENGLISH, Locale.GERMAN))
+        assertEquals("de", (r as ValidationResult.Compatible).plan.selectedLocaleTag)
+    }
+
+    @Test
+    fun noLocaleMatchIsIncompatible() {
+        val md =
+            TransactionDataTypeMetadata(
+                claims =
+                    listOf(
+                        ClaimMetadata(
+                            path = listOf("amount"),
+                            mandatory = false,
+                            valueType = null,
+                            display = listOf(ClaimDisplay("ja", "金額", null)),
+                        ),
+                    ),
+                uiLabels = UiLabels(),
+            )
+        val payload = buildJsonObject { put("amount", JsonPrimitive("x")) }
+
+        val r = checker.check(md, payload, listOf(Locale.ENGLISH))
+        assertEquals(
+            IncompatibilityReason.Code.NO_LOCALE_MATCH,
+            (r as ValidationResult.Incompatible).reason.code,
+        )
+    }
+
+    @Test
     fun rowsFollowClaimsArrayOrderNotPayloadOrder() {
         // View §2: "The display order SHALL be the order in which the claims appear in the
         // `claims` array, not the order of fields in the `payload` object." The payload is

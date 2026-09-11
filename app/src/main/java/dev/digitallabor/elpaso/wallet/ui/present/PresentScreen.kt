@@ -372,6 +372,7 @@ fun PresentScreen(
                             onCancel = onCancel,
                             onAuthorize = authorize,
                             onDynamicScreenTitle = { dynamicScreenTitle = it },
+                            onDisplayLocale = client::recordDisplayLocale,
                         )
                     }
                 }
@@ -484,6 +485,8 @@ private fun ResolvedContent(
     onCancel: () -> Unit,
     onAuthorize: (List<DcqlMatcher.Match>) -> Unit,
     onDynamicScreenTitle: (String?) -> Unit,
+    /** Reports the PaSO View §4 selected locale so it can be signed into `display_locale`. */
+    onDisplayLocale: (String?) -> Unit,
 ) {
     val scroll = rememberScrollState()
     // Each candidate is a complete, spec-valid assignment of credentials to the
@@ -533,6 +536,7 @@ private fun ResolvedContent(
                 plans.value = emptyMap()
                 refusal.value = null
                 onDynamicScreenTitle(null)
+                onDisplayLocale(null)
                 Log.d("PresentScreen", "no source credential; clearing dynamic title")
                 return@LaunchedEffect
             }
@@ -543,6 +547,7 @@ private fun ResolvedContent(
                     plans.value = emptyMap()
                     refusal.value = ConsentRefusal(outcome.entryType, outcome.reason)
                     onDynamicScreenTitle(null)
+                    onDisplayLocale(null)
                     return@LaunchedEffect
                 }
 
@@ -571,6 +576,7 @@ private fun ResolvedContent(
                     plans.value = emptyMap()
                     refusal.value = ConsentRefusal(entry.type, result.reason.code.name)
                     onDynamicScreenTitle(null)
+                    onDisplayLocale(null)
                     return@LaunchedEffect
                 }
 
@@ -580,6 +586,12 @@ private fun ResolvedContent(
 
         refusal.value = null
         plans.value = validated
+        // §4's outcome is what gets signed into `display_locale`: it describes the screen
+        // the user actually approved, which is not necessarily the language they chose in
+        // Settings. Reported from the same entry whose title the app bar shows.
+        onDisplayLocale(
+            resolved.transactionData.firstNotNullOfOrNull { entry -> validated[entry.raw]?.selectedLocaleTag },
+        )
         Log.d("PresentScreen", "plans built for credential=${src.id} entries=${validated.size}")
         // Lift transaction_title up to the screen-level app bar (paso-proof-metadata.md
         // §3.2 — "Title for the consent screen"). Use the first entry that produced a plan;

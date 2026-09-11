@@ -72,6 +72,14 @@ Concretely:
   entry. Either one drives the claim labels, screen title, action buttons and security
   hint on the consent screen. An ad-hoc JWT that fails verification stops the
   presentation outright rather than falling back.
+- **Strict consent rendering** — the consent screen is built from a pre-validated render
+  plan, never from raw metadata. Label lengths (counted in grapheme clusters), prohibited
+  control and directional characters, the closed set of `value_type`s, https-only URLs and
+  image integrity are all checked *before* anything is drawn; a violation refuses the
+  request rather than degrading it, and nothing is ever truncated. The display language is
+  chosen by PaSO View §4 — a locale is used only if every label array can serve it, so the
+  screen is never a mix of two languages — and that selected locale is what gets signed
+  into the `display_locale` holder-binding claim.
 - **Verifier trust** — issuer and verifier trust lists with optional X.509 SHA-256
   fingerprint pinning. The consent screen shows a `Verified verifier` or
   `Untrusted verifier` chip.

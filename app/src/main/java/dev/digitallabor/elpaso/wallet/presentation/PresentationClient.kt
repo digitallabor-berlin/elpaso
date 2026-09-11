@@ -1290,15 +1290,36 @@ class PresentationClient(
             }
         }
 
+    /**
+     * The locale the consent screen actually rendered in — the outcome of PaSO View §4,
+     * recorded by the screen once it has a `RenderPlan`.
+     *
+     * `display_locale` is a statement about what the user was shown, so it must be the
+     * *selected* locale rather than the preference the user set in Settings. Those differ
+     * whenever §4 falls through: if the issuer's metadata carries no German labels, a German
+     * user is shown English, and reporting "de" would misdescribe the screen they approved.
+     */
+    @Volatile
+    private var displayLocaleTag: String? = null
+
+    /** Called by the consent screen when the §4 selection settles, and cleared when it does not. */
+    fun recordDisplayLocale(tag: String?) {
+        displayLocaleTag = tag
+    }
+
     private suspend fun buildPasoClaims(
         resolved: State.Resolved,
         pasoEntry: UiTransactionData,
     ): PasoScaClaims {
-        val locale = LocaleApplier.effectiveLocale(settings.currentLanguagePreference())
+        // Falls back to the UI preference only when no plan was built — a non-PaSO or
+        // metadata-less flow, where there is no §4 outcome to report in the first place.
+        val displayLocale =
+            displayLocaleTag
+                ?: LocaleApplier.effectiveLocale(settings.currentLanguagePreference()).toLanguageTag()
         return PasoScaClaims(
             jti = UUID.randomUUID().toString(),
             responseMode = resolved.responseMode,
-            displayLocale = locale.toLanguageTag(),
+            displayLocale = displayLocale,
             // BiometricAuthorizer enforces BIOMETRIC_STRONG over a hardware-backed device
             // key — covers PSD2's possession (hwk) + inherence (bio_strong) categories.
             amr = listOf("hwk", "bio_strong"),

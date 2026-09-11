@@ -170,6 +170,29 @@ implementation on purpose; do not fork it. Three invariants are easy to undo:
   `x5c`, fall back to `kid` — is exactly what §10.2 forbids, and it reads as defensive,
   which is why it needs saying here.
 
+**Generic transaction-data rendering is strict, and not behind `developerMode`.** An entry
+whose metadata or payload violates PaSO View §2–§4 or PaSO Proof Metadata §3.3 — a label
+over its grapheme-cluster cap or carrying prohibited characters, an unsupported or
+non-conforming `value_type`, a payload field no claim `path` covers, an image without its
+`#integrity` companion, or no locale that matches *every* display array — is **not
+compatible**. `TransactionDataValidator` returns `ValidationResult.Incompatible` and the
+request is refused through the same cancel-only screen a failed ad-hoc JWT uses. There is
+no permissive plaintext fallback: the removed "additive stance" mirrors the issuance
+signature gate, which is likewise unflagged. Two consequences worth keeping straight:
+
+- **Compatibility is decided before anything is drawn.** `TransactionDataCompatibilityChecker`
+  runs §4 locale selection then §7.4.2 step 2, and hands the composable a `RenderPlan` whose
+  every label, value and image has already passed. `DynamicTransactionDataBlock` takes that
+  plan and nothing else — it cannot discover a problem mid-draw, because View §2 leaves a
+  renderer that does so no legal move: degrading the content and drawing a broken screen are
+  both forbidden. Do not reintroduce formatting or locale-picking inside a composable.
+- **Locale selection is all-or-nothing.** `LocaleSelector.select` tries each locale in the
+  priority list and accepts one only if every claim `display` array *and* every populated
+  `ui_labels` array matches it (RFC4647 §3.4 Lookup, falling back to an entry without a
+  `locale`). No complete match excludes the credential. The natural-looking alternative —
+  let each array pick its own best match — renders a German label above an English one with
+  nothing on screen to say so, which is exactly what §4 exists to prevent.
+
 Metadata is keyed per *entry* (the verbatim base64url string), never per type: §5.4
 scopes ad-hoc metadata to its own entry, so two entries sharing a `type` must not share
 one entry's issuer-signed labels.
