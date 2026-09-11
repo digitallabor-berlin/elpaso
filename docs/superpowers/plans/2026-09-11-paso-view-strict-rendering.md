@@ -50,7 +50,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 ### Scope boundaries (decided — do not re-litigate)
 
 - All four phases are in scope: core hardening (A–E, G, K), locale-selection rewrite (H), image pipeline (F), display guarantees + array wildcards (I, J).
-- **Per-entry compatibility → whole-request refusal.** Today one incompatible ad-hoc entry refuses the whole request (`TransactionMetadataResolver.Outcome.Incompatible` → `IncompatibleTransactionContent`), documented as deliberate (AGENTS.md:148–152). Generic-rendering incompatibility reuses that exact sink. The multi-entry "select the first compatible entry per credential, else exclude the credential, else cease" **loop** of §7.4.2 steps 2–5 is **out of scope** for this plan; record it as a Known Limitation (Task 14). This plan makes each entry's compatibility verdict strict and correct; it does not add the per-credential fallthrough loop.
+- **Ad-hoc §5.3 failure → whole-request refusal (retained); generic-rendering incompatibility → per-credential fallthrough (Task 15).** An incompatible **ad-hoc `metadata` JWT** still refuses the whole request (`TransactionMetadataResolver.Outcome.Incompatible` → `IncompatibleTransactionContent`), documented as deliberate (AGENTS.md:148–152) — this wallet-specific paso-proof-metadata §5.3 rule is **stricter than §7.4.2** and is **not** softened. **Generic-rendering** incompatibility, by contrast, no longer refuses the whole request: PaSO Core §7.4.2 steps 1–5 (identify candidate PaSO credentials; per credential select the first compatible entry in array order; on external-resource/SRI failure resume at the next entry; exclude a credential with no compatible entry; cease only when none remain; present the survivors as alternatives) is **in scope and implemented in Task 15**. Task 15's selection loop routes every generic incompatibility — including an image whose SRI fails (`Incompatible(IMAGE_INTEGRITY_FAILED)`) — into the next-entry retry, and reaches the cancel-only screen only via the §7.4.2-step-4 "no compatible credential" cease path. The plan's earlier tasks make each entry's per-entry compatibility verdict strict and correct; Task 15 adds the per-credential selection loop on top.
 
 ---
 
@@ -1500,23 +1500,682 @@ git commit -m "feat(txdata): array wildcard expansion with index-bound template 
 
 ---
 
+### Task 15: PaSO Core §7.4.2 steps 1–5 — per-credential first-match entry selection
+
+**Execution order:** Task 15 executes **before Task 14**, even though it is numbered after it and placed just above it. It changes shipped behaviour; Task 14 is the final documentation-currency commit and records the end state. Execution sequence is **1 → 13, then 15, then 14** (this is also the document order: this task sits between Task 13 and Task 14).
+
+This task adds the §7.4.2 steps 2–5 selection **loop** on top of the finished per-entry checker (Tasks 7–13). It **supersedes the interim wiring** stood up in Task 7 (and extended in Tasks 8/9/10/12), where every `ValidationResult.Incompatible` routed straight to `IncompatibleTransactionContent`. From now on a generic-rendering incompatibility **excludes only that (credential, entry) pair** and the wallet advances to the next entry, then the next credential; the cancel-only screen appears only when **no compatible credential remains** (step 4). Scope is PaSO Core **§7.4.2 steps 1–5**; §7.4.1 credential-set **transposability** detection is a separate subsection and is **not** implemented here (noted below, not left as a silent gap).
+
+> **The single most important distinction — do not get this wrong.** There are **two** incompatibility channels and they diverge here:
+>
+> - **Ad-hoc `metadata` JWT failure (paso-proof-metadata §5.3):** `TransactionMetadataResolver.resolve(...)` returns `Outcome.Incompatible`. This **refuses the whole request** — a wallet-specific rule **stricter than §7.4.2**, retained verbatim from today's behaviour (AGENTS.md:148–152, `TransactionMetadataResolver` KDoc). It maps to `EntryVerdict.RefuseRequest` and short-circuits the entire selection to `SelectionOutcome.Refuse`. **It MUST NOT be softened into a per-credential fallthrough.**
+> - **Generic-rendering incompatibility (PaSO View / Metadata §3.3):** the checker returns `ValidationResult.Incompatible` (including `IMAGE_INTEGRITY_FAILED` from Task 10's step-3 image resolution). This maps to `EntryVerdict.Skip` and advances to the next entry. §7.4.2 step-2 non-conformance **and** step-3 SRI failure both land here: the spec "resumes selection at step 2" for a step-3 failure, which is the *same array-cursor advance* as a step-2 skip, because Task 10's `check` already fuses steps 2 and 3 into one `ValidationResult`. The loop therefore treats all `Incompatible` reasons uniformly (`reason` is retained for logging only), which is exactly the spec's net effect.
+
+**Files:**
+
+- Create: `app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/EntrySelector.kt` (loop + `PasoCandidate`, `CredentialSelection`, `SelectionOutcome`, `EntryEvaluator`, `EntryVerdict`)
+- Create: `app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/PasoCandidateBuilder.kt` (§7.4.2 step 1)
+- Modify: `app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/TransactionData.kt` (add `credentialIds` to the interface; populate it at `parse` from the decoded object)
+- Modify: `app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/paso/PasoDetector.kt` (remove the simple-profile `rejectAdvancedProfile` count gate + its `PasoUnsupportedException`; update the class KDoc)
+- Modify: `app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/PresentationClient.kt` (drop both `PasoDetector.rejectAdvancedProfile(txData)` calls; `buildPasoClaims` hashes the **selected** entry — thread it exactly as Task 9 threads `displayLocaleTag`)
+- Modify: `app/src/main/java/dev/digitallabor/elpaso/wallet/ui/present/PresentScreen.kt` (build candidates + evaluator, run `EntrySelector`, route `Refuse`/`Cease`/`Present`, pager over the compatible survivors, feed authorize + `display_locale` from the consented selection)
+- Modify: `app/src/main/java/dev/digitallabor/elpaso/wallet/di/Modules.kt` (`single { EntrySelector() }` in `presentationModule`)
+- Modify: `AGENTS.md` (correct the strict-rendering bullet added in Task 8: generic incompatibility → per-credential exclusion; ad-hoc §5.3 unchanged)
+- Modify: `README.md` (correct the Presentation bullet amended in Task 9: excluded credential, not whole-request refusal)
+- Modify: `app/src/main/res/values/strings.xml`, `app/src/main/res/values-de/strings.xml`, `app/src/main/res/values-fr/strings.xml` (cease "no compatible credential" copy; French apostrophes `\'`)
+- Test: `app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/EntrySelectorTest.kt`
+- Test: `app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/PasoCandidateBuilderTest.kt`
+- Test (update): `app/src/test/java/dev/digitallabor/elpaso/wallet/PasoDetectorTest.kt`
+
+**Interfaces:**
+
+- Consumes: `RenderPlan`, `ValidationResult`, `IncompatibilityReason` (Task 2); `TransactionDataCompatibilityChecker.check` — now `suspend` (Task 10); `LocaleSelector.select` / `Selection` (Task 8); `TransactionMetadataResolver` + `Outcome` (existing); `TransactionData` (existing, `credentialIds` added by this task); `PresentationCandidate` / `DcqlMatcher.Match` / `Format` (existing, pure).
+- Produces (canonical — later readers see only these signatures):
+
+```kotlin
+// EntrySelector.kt
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+
+/**
+ * PaSO Core §7.4.2 step-1 output: one candidate PaSO Credential (by wallet [credentialId])
+ * and the PaSO-targeted `transaction_data` entries that target it (via `credential_ids`),
+ * in request array order. Keyed on the String id — not the heavy [Credential] — so the loop
+ * stays pure and JVM-unit-testable.
+ */
+data class PasoCandidate(
+    val credentialId: String,
+    val entries: List<TransactionData>,
+)
+
+/** §7.4.2 step-2 result for one credential: the first compatible entry and its validated plan. */
+data class CredentialSelection(
+    val credentialId: String,
+    val entry: TransactionData,
+    val plan: RenderPlan,
+)
+
+/** Verdict for ONE (credential, entry) pair, produced by [EntryEvaluator]. */
+sealed interface EntryVerdict {
+    /** Compatible: carries the §7.4.2 step-2/3 render plan. */
+    data class Compatible(val plan: RenderPlan) : EntryVerdict
+
+    /**
+     * Not compatible for this credential — advance to the next entry in array order. Covers
+     * BOTH a step-2 payload/label/value-type non-conformance AND a step-3 external-resource
+     * (SRI) failure; the spec resumes selection at step 2 in both cases, which is the same
+     * array-cursor advance. [reason] is retained for logging only; the loop never inspects it.
+     */
+    data class Skip(val reason: String) : EntryVerdict
+
+    /**
+     * The entry's AD-HOC `metadata` JWT failed paso-proof-metadata §5.3. NOT a per-credential
+     * fallthrough: the whole request is refused (existing invariant, AGENTS.md). The selector
+     * stops and returns [SelectionOutcome.Refuse].
+     */
+    data class RefuseRequest(val entryType: String, val reason: String) : EntryVerdict
+}
+
+/**
+ * Evaluates a single (credential, entry) pair end-to-end: resolve issuer metadata for the
+ * entry against the credential, run PaSO View §4 locale selection, then the `suspend`
+ * [TransactionDataCompatibilityChecker] (validate + image resolution). `suspend` because the
+ * checker and metadata resolution are `suspend`. A `fun interface` so [EntrySelector]'s loop
+ * is pure and JVM-unit-testable with a fake.
+ */
+fun interface EntryEvaluator {
+    suspend fun evaluate(credentialId: String, entry: TransactionData): EntryVerdict
+}
+
+/** Outcome of §7.4.2 steps 2–5 across all candidate credentials. */
+sealed interface SelectionOutcome {
+    /**
+     * ≥1 credential has a compatible entry. [selections] preserves the step-1 candidate order
+     * (verifier preference); step 5 presents them as alternatives and displays [initial]'s plan
+     * for the initially selected credential.
+     */
+    data class Present(val selections: List<CredentialSelection>) : SelectionOutcome {
+        init { require(selections.isNotEmpty()) { "Present requires >=1 selection; use Cease" } }
+        val initial: CredentialSelection get() = selections.first()
+    }
+
+    /** §7.4.2 step 4: no compatible credential remains — cease processing and inform the user. */
+    data object Cease : SelectionOutcome
+
+    /** paso-proof-metadata §5.3 ad-hoc failure — whole-request refusal (distinct copy from [Cease]). */
+    data class Refuse(val entryType: String, val reason: String) : SelectionOutcome
+}
+
+class EntrySelector {
+    /**
+     * PaSO Core §7.4.2 steps 2–5. For each candidate (step 1), iterate its entries in array
+     * order; the first [EntryVerdict.Compatible] is that credential's selection (step 2);
+     * [EntryVerdict.Skip] advances to the next entry (step-2 non-conformance AND step-3 SRI
+     * failure both land here); running out excludes the credential. A single
+     * [EntryVerdict.RefuseRequest] short-circuits to [SelectionOutcome.Refuse] (ad-hoc §5.3,
+     * whole request). If every candidate is excluded, [SelectionOutcome.Cease] (step 4).
+     * [candidates] order is preserved into [SelectionOutcome.Present.selections] (step 5).
+     */
+    suspend fun select(
+        candidates: List<PasoCandidate>,
+        evaluate: EntryEvaluator,
+    ): SelectionOutcome
+}
+```
+
+```kotlin
+// PasoCandidateBuilder.kt
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+
+object PasoCandidateBuilder {
+    /**
+     * PaSO Core §7.4.2 step 1. For each credential that appears in a spec-valid presentation
+     * [candidates] combination (so optional/unsatisfied credential-set members never contribute
+     * a credential the wallet may not disclose — §6.4.2), the PaSO-targeted entries (in request
+     * array order) whose `credential_ids` intersect the credential-query identifiers that
+     * credential answers. An entry with EMPTY `credential_ids` targets every credential
+     * (untargeted / simple profile). A credential with no targeting entry is dropped. Order
+     * is first-appearance (verifier preference). Pure — no DCQL evaluation, no I/O.
+     */
+    fun build(
+        candidates: List<PresentationCandidate>,
+        entries: List<TransactionData>,
+    ): List<PasoCandidate>
+}
+```
+
+`TransactionData` gains one member so step 1 can read targeting purely:
+
+```kotlin
+// TransactionData.kt — new interface member; populated at parse time from the decoded object.
+sealed interface TransactionData {
+    // ...existing raw/type/isPaso()/payloadScope/adhocMetadataJwt...
+    /** `credential_ids` — the DCQL credential-query identifiers this entry targets (§7.4.1). Empty when absent. */
+    val credentialIds: List<String>
+}
+```
+
+- [ ] **Step 1: Add `credentialIds` to `TransactionData` and populate it at parse (pure part).**
+
+In `TransactionData.kt`: declare `val credentialIds: List<String>` on the sealed interface; add `override val credentialIds: List<String> = emptyList()` as the **last** constructor parameter of `PaymentData`, `QesAuthorization`, `PasoPayment`, `Generic`, and `Invalid` (defaulted, so existing positional constructions still compile); change `EudiScaPayment`'s existing `val credentialIds` to `override val credentialIds`. Add a pure helper on the companion and use it in every `parse` branch:
+
+```kotlin
+internal fun credentialIdsFrom(obj: JsonObject): List<String> =
+    obj["credential_ids"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+```
+
+In `parse`, pass `credentialIds = credentialIdsFrom(obj)` to `PaymentData`, `QesAuthorization`, `Generic`, and (via their internal factories) `PasoPayment`. `EudiScaPayment` already reads `obj["credential_ids"]` — replace that inline block with `credentialIdsFrom(obj)`. `Invalid` keeps the default `emptyList()`. Write the failing pure test first:
+
+```kotlin
+// app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/TransactionDataCredentialIdsTest.kt
+package dev.digitallabor.elpaso.wallet.presentation.txdata
+
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class TransactionDataCredentialIdsTest {
+    @Test fun readsCredentialIdsArray() {
+        val obj = buildJsonObject { putJsonArray("credential_ids") { add("q_pid"); add("q_pay") } }
+        assertEquals(listOf("q_pid", "q_pay"), TransactionData.credentialIdsFrom(obj))
+    }
+
+    @Test fun absentCredentialIdsIsEmpty() =
+        assertEquals(emptyList<String>(), TransactionData.credentialIdsFrom(buildJsonObject { }))
+
+    @Test fun genericEntryDefaultsToEmptyCredentialIds() =
+        assertEquals(
+            emptyList<String>(),
+            TransactionData.Generic("r", "urn:paso:sca:generic:1", buildJsonObject { }).credentialIds,
+        )
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.TransactionDataCredentialIdsTest"` → FAIL (unresolved `credentialIdsFrom`) → implement → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 2: Write the failing `PasoCandidateBuilderTest` (step 1).**
+
+```kotlin
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.domain.model.Format
+import dev.digitallabor.elpaso.wallet.presentation.DcqlMatcher
+import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+import kotlinx.serialization.json.buildJsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PasoCandidateBuilderTest {
+    private fun match(queryId: String, credentialId: String) =
+        DcqlMatcher.Match(queryId = queryId, credentialId = credentialId, format = Format.SdJwtVc)
+
+    private fun cand(vararg m: DcqlMatcher.Match) = PresentationCandidate(assignments = m.toList())
+
+    private fun paso(raw: String, credentialIds: List<String>) =
+        TransactionData.Generic(
+            raw = raw, type = "urn:paso:sca:generic:1",
+            raw_obj = buildJsonObject { }, credentialIds = credentialIds,
+        )
+
+    @Test fun entryTargetsCredentialWhenCredentialIdsIntersectQueryIds() {
+        val built = PasoCandidateBuilder.build(
+            listOf(cand(match("q_pid", "cred-A"))),
+            listOf(paso("e1", listOf("q_pid"))),
+        )
+        assertEquals(1, built.size)
+        assertEquals("cred-A", built.single().credentialId)
+        assertEquals(listOf("e1"), built.single().entries.map { it.raw })
+    }
+
+    @Test fun emptyCredentialIdsTargetsEveryCredential() {
+        val built = PasoCandidateBuilder.build(
+            listOf(cand(match("q_pid", "cred-A"))),
+            listOf(paso("e1", emptyList())),
+        )
+        assertEquals(listOf("e1"), built.single().entries.map { it.raw })
+    }
+
+    @Test fun credentialWithNoTargetingEntryIsDropped() {
+        val built = PasoCandidateBuilder.build(
+            listOf(cand(match("q_other", "cred-A"))),
+            listOf(paso("e1", listOf("q_pid"))),
+        )
+        assertTrue(built.isEmpty())
+    }
+
+    @Test fun entriesKeepRequestArrayOrder() {
+        val built = PasoCandidateBuilder.build(
+            listOf(cand(match("q_pid", "cred-A"))),
+            listOf(paso("first", listOf("q_pid")), paso("second", listOf("q_pid"))),
+        )
+        assertEquals(listOf("first", "second"), built.single().entries.map { it.raw })
+    }
+
+    @Test fun nonPasoEntriesAreIgnored() {
+        val built = PasoCandidateBuilder.build(
+            listOf(cand(match("q_pid", "cred-A"))),
+            listOf(
+                TransactionData.Generic("np", "payment_data", buildJsonObject { }),
+                paso("p", listOf("q_pid")),
+            ),
+        )
+        assertEquals(listOf("p"), built.single().entries.map { it.raw })
+    }
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.PasoCandidateBuilderTest"` → FAIL (`PasoCandidateBuilder` unresolved).
+
+- [ ] **Step 3: Implement `PasoCandidateBuilder`.**
+
+```kotlin
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.presentation.PresentationCandidate
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+
+object PasoCandidateBuilder {
+    fun build(
+        candidates: List<PresentationCandidate>,
+        entries: List<TransactionData>,
+    ): List<PasoCandidate> {
+        val pasoEntries = entries.filter { it.isPaso() }
+        if (pasoEntries.isEmpty()) return emptyList()
+
+        // credentialId -> the credential-query identifiers it answers in a spec-valid candidate.
+        // LinkedHashMap preserves first-appearance (verifier-preference) order.
+        val queryIdsByCredential = LinkedHashMap<String, MutableSet<String>>()
+        for (candidate in candidates) {
+            for (assignment in candidate.assignments) {
+                queryIdsByCredential.getOrPut(assignment.credentialId) { linkedSetOf() }
+                    .add(assignment.queryId)
+            }
+        }
+
+        return queryIdsByCredential.mapNotNull { (credentialId, queryIds) ->
+            val targeting =
+                pasoEntries.filter { e ->
+                    e.credentialIds.isEmpty() || e.credentialIds.any { it in queryIds }
+                }
+            if (targeting.isEmpty()) null else PasoCandidate(credentialId, targeting)
+        }
+    }
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.PasoCandidateBuilderTest"` → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 4: Write the failing `EntrySelectorTest` (steps 2–5, the heart of the task).**
+
+```kotlin
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.buildJsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EntrySelectorTest {
+    private val selector = EntrySelector()
+
+    private fun entry(raw: String) =
+        TransactionData.Generic(raw = raw, type = "urn:paso:sca:generic:1", raw_obj = buildJsonObject { })
+
+    private fun plan(tag: String = "en") =
+        RenderPlan(
+            title = null, rows = emptyList(), securityHint = null,
+            affirmativeLabel = null, denialLabel = null,
+            selectedLocaleTag = tag, totalItemCount = 0,
+        )
+
+    /** Fake evaluator keyed on (credentialId, entry.raw); default Skip so unmatched pairs advance. */
+    private fun evaluatorOf(vararg rules: Pair<Pair<String, String>, EntryVerdict>): EntryEvaluator {
+        val table = rules.toMap()
+        return EntryEvaluator { credentialId, e -> table[credentialId to e.raw] ?: EntryVerdict.Skip("no rule") }
+    }
+
+    @Test fun firstCompatibleEntryWinsInArrayOrder() = runTest {
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("e1"), entry("e2")))),
+            evaluatorOf(
+                ("cred-A" to "e1") to EntryVerdict.Compatible(plan()),
+                ("cred-A" to "e2") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertEquals("e1", (out as SelectionOutcome.Present).initial.entry.raw)
+    }
+
+    @Test fun skipAdvancesToNextEntry() = runTest {
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("e1"), entry("e2")))),
+            evaluatorOf(
+                ("cred-A" to "e1") to EntryVerdict.Skip("UNSUPPORTED_VALUE_TYPE"),
+                ("cred-A" to "e2") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertEquals("e2", (out as SelectionOutcome.Present).initial.entry.raw)
+    }
+
+    @Test fun imageIntegrityFailureRetriesNextEntryNotRefusal() = runTest {
+        // §7.4.2 step 3: an SRI failure resumes selection at the next entry, NOT a refusal.
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("img"), entry("ok")))),
+            evaluatorOf(
+                ("cred-A" to "img") to EntryVerdict.Skip("IMAGE_INTEGRITY_FAILED"),
+                ("cred-A" to "ok") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertTrue(out is SelectionOutcome.Present)
+        assertEquals("ok", (out as SelectionOutcome.Present).initial.entry.raw)
+    }
+
+    @Test fun credentialWithNoCompatibleEntryIsExcluded() = runTest {
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("a1"))), PasoCandidate("cred-B", listOf(entry("b1")))),
+            evaluatorOf(
+                ("cred-A" to "a1") to EntryVerdict.Skip("x"),
+                ("cred-B" to "b1") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertEquals(listOf("cred-B"), (out as SelectionOutcome.Present).selections.map { it.credentialId })
+    }
+
+    @Test fun ceaseWhenNoCompatibleCredentialRemains() = runTest {
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("a1")))),
+            evaluatorOf(("cred-A" to "a1") to EntryVerdict.Skip("x")),
+        )
+        assertTrue(out is SelectionOutcome.Cease)
+    }
+
+    @Test fun adhocRefuseShortCircuitsWholeRequest() = runTest {
+        // §5.3 ad-hoc failure refuses the WHOLE request, even though cred-B would be compatible.
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("a1"))), PasoCandidate("cred-B", listOf(entry("b1")))),
+            evaluatorOf(
+                ("cred-A" to "a1") to EntryVerdict.RefuseRequest("urn:paso:sca:generic:1", "sig invalid"),
+                ("cred-B" to "b1") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertEquals("urn:paso:sca:generic:1", (out as SelectionOutcome.Refuse).entryType)
+    }
+
+    @Test fun selectionsPreserveCandidateOrder() = runTest {
+        val out = selector.select(
+            listOf(PasoCandidate("cred-A", listOf(entry("a1"))), PasoCandidate("cred-B", listOf(entry("b1")))),
+            evaluatorOf(
+                ("cred-A" to "a1") to EntryVerdict.Compatible(plan()),
+                ("cred-B" to "b1") to EntryVerdict.Compatible(plan()),
+            ),
+        )
+        assertEquals(listOf("cred-A", "cred-B"), (out as SelectionOutcome.Present).selections.map { it.credentialId })
+    }
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.EntrySelectorTest"` → FAIL (`EntrySelector` unresolved).
+
+- [ ] **Step 5: Implement `EntrySelector` and its types** (no `var`; ad-hoc refusal short-circuits, Skip advances, empty→Cease).
+
+```kotlin
+package dev.digitallabor.elpaso.wallet.presentation.txdata.render
+
+import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionData
+
+data class PasoCandidate(val credentialId: String, val entries: List<TransactionData>)
+
+data class CredentialSelection(
+    val credentialId: String,
+    val entry: TransactionData,
+    val plan: RenderPlan,
+)
+
+sealed interface EntryVerdict {
+    data class Compatible(val plan: RenderPlan) : EntryVerdict
+    data class Skip(val reason: String) : EntryVerdict
+    data class RefuseRequest(val entryType: String, val reason: String) : EntryVerdict
+}
+
+fun interface EntryEvaluator {
+    suspend fun evaluate(credentialId: String, entry: TransactionData): EntryVerdict
+}
+
+sealed interface SelectionOutcome {
+    data class Present(val selections: List<CredentialSelection>) : SelectionOutcome {
+        init { require(selections.isNotEmpty()) { "Present requires >=1 selection; use Cease" } }
+        val initial: CredentialSelection get() = selections.first()
+    }
+
+    data object Cease : SelectionOutcome
+
+    data class Refuse(val entryType: String, val reason: String) : SelectionOutcome
+}
+
+class EntrySelector {
+    suspend fun select(
+        candidates: List<PasoCandidate>,
+        evaluate: EntryEvaluator,
+    ): SelectionOutcome {
+        val selections = mutableListOf<CredentialSelection>()
+        for (candidate in candidates) {
+            when (val result = selectForCredential(candidate, evaluate)) {
+                is PerCredential.Selected -> selections += result.selection
+                PerCredential.Excluded -> Unit
+                is PerCredential.Refuse -> return SelectionOutcome.Refuse(result.entryType, result.reason)
+            }
+        }
+        return if (selections.isEmpty()) SelectionOutcome.Cease else SelectionOutcome.Present(selections)
+    }
+
+    private suspend fun selectForCredential(
+        candidate: PasoCandidate,
+        evaluate: EntryEvaluator,
+    ): PerCredential {
+        for (entry in candidate.entries) {
+            when (val verdict = evaluate.evaluate(candidate.credentialId, entry)) {
+                is EntryVerdict.Compatible ->
+                    return PerCredential.Selected(
+                        CredentialSelection(candidate.credentialId, entry, verdict.plan),
+                    )
+                is EntryVerdict.Skip -> Unit // steps 2 & 3: try the next entry in array order
+                is EntryVerdict.RefuseRequest ->
+                    return PerCredential.Refuse(verdict.entryType, verdict.reason)
+            }
+        }
+        return PerCredential.Excluded
+    }
+
+    private sealed interface PerCredential {
+        data class Selected(val selection: CredentialSelection) : PerCredential
+        data object Excluded : PerCredential
+        data class Refuse(val entryType: String, val reason: String) : PerCredential
+    }
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.EntrySelectorTest"` → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 6: Relax `PasoDetector` (advanced profile is now supported) and update its test.**
+
+In `PasoDetector.kt`: delete `rejectAdvancedProfile(...)` and `PasoUnsupportedException` (the count gate is obsolete — the loop handles multiple PaSO entries); keep `pasoEntry(...)`. Rewrite the class KDoc to state the wallet now implements PaSO Core §7.4.2 steps 1–5 (advanced profile), that `pasoEntry` returns the first PaSO entry only as the "is this a PaSO request?" signal (which triggers `request_integrity` + SCA claims), and that §7.4.1 credential-set transposability is not yet enforced. In `PresentationClient.kt`, delete the two `PasoDetector.rejectAdvancedProfile(txData)` lines (≈:469 and ≈:800). In `PasoDetectorTest.kt`, delete the three `rejectAdvancedProfile*` tests; keep the four `pasoEntry*` tests. (The `paso_multiple_entries_not_supported` string becomes unused — harmless for `StringsParityTest`, which checks locale parity, not usage; leave it.)
+
+Run: `gradle :app:testDebugUnitTest --tests "*.PasoDetectorTest"` → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 7: DI + commit the pure core.**
+
+In `Modules.kt` `presentationModule`, add `single { EntrySelector() }` (next to `single { DcqlCandidateResolver() }`). Compile.
+
+```bash
+gradle :app:compileDebugKotlin
+git add app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/EntrySelector.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/PasoCandidateBuilder.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/txdata/TransactionData.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/paso/PasoDetector.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/PresentationClient.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/di/Modules.kt \
+        app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/TransactionDataCredentialIdsTest.kt \
+        app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/PasoCandidateBuilderTest.kt \
+        app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/EntrySelectorTest.kt \
+        app/src/test/java/dev/digitallabor/elpaso/wallet/PasoDetectorTest.kt
+git commit -m "feat(txdata): §7.4.2 per-credential entry-selection engine (pure) + credential_ids targeting"
+```
+
+(`PresentationClient.kt` here carries only the two `rejectAdvancedProfile` deletions; its `buildPasoClaims` change lands in Step 10.)
+
+- [ ] **Step 8: Wire `PresentScreen.ResolvedContent` to run the selector.** Replace the interim per-entry checker loop (Task 7/8) with the per-credential selection. `EntrySelector` and `TransactionDataCompatibilityChecker` are `koinInject()`ed like `metadataResolver`. Build one evaluator that closes over the resolved request, the active locale priority list (Task 8), and `credentialsById`:
+
+```kotlin
+val entrySelector: EntrySelector = koinInject()
+val checker: TransactionDataCompatibilityChecker = koinInject()
+// selection state replaces the Task-7 `incompatible`/`dynamicMetadata` pair:
+val selection = remember(resolved, locale) { mutableStateOf<SelectionOutcome?>(null) }
+
+LaunchedEffect(resolved, locale) {
+    val priority =
+        LocaleSelector.localePriorityList(AppCompatDelegate.getApplicationLocales(), locale)
+    val pasoCandidates =
+        PasoCandidateBuilder.build(resolved.candidates, resolved.transactionData)
+    val evaluator =
+        EntryEvaluator { credentialId, entry ->
+            val credential =
+                credentialsById[credentialId]
+                    ?: return@EntryEvaluator EntryVerdict.Skip("unknown credential $credentialId")
+            when (val outcome =
+                metadataResolver.resolve(listOf(entry), credential, locale)) {
+                is TransactionMetadataResolver.Outcome.Incompatible ->
+                    EntryVerdict.RefuseRequest(outcome.entryType, outcome.reason) // §5.3 whole request
+                is TransactionMetadataResolver.Outcome.Resolved -> {
+                    val md =
+                        outcome.byEntry[entry.raw]
+                            ?: return@EntryEvaluator EntryVerdict.Skip("type unsupported by credential")
+                    val sel =
+                        LocaleSelector.select(md, priority)
+                            ?: return@EntryEvaluator EntryVerdict.Skip("no locale match")
+                    val payload =
+                        entry.payloadScope
+                            ?: return@EntryEvaluator EntryVerdict.Skip("no payload")
+                    when (val r = checker.check(md, payload, sel)) {
+                        is ValidationResult.Compatible -> EntryVerdict.Compatible(r.plan)
+                        is ValidationResult.Incompatible ->
+                            EntryVerdict.Skip("${r.reason.code}: ${r.reason.detail}") // incl. IMAGE_INTEGRITY_FAILED
+                    }
+                }
+            }
+        }
+    selection.value = entrySelector.select(pasoCandidates, evaluator)
+    onDynamicScreenTitle(
+        (selection.value as? SelectionOutcome.Present)?.initial?.plan?.title?.let(::plainTitleOf),
+    )
+}
+```
+
+Then branch on `selection.value` before the payment/generic layout:
+
+```kotlin
+when (val s = selection.value) {
+    is SelectionOutcome.Refuse -> { // ad-hoc §5.3 — existing cancel-only screen, unchanged copy
+        IncompatibleTransactionContent(
+            verifierName = resolved.verifier.displayLabel,
+            entryType = s.entryType,
+            onCancel = onCancel,
+        )
+        return
+    }
+    is SelectionOutcome.Cease -> { // §7.4.2 step 4 — no compatible credential (new copy, Step 9)
+        CeaseProcessingContent(verifierName = resolved.verifier.displayLabel, onCancel = onCancel)
+        return
+    }
+    is SelectionOutcome.Present -> Unit // fall through to render the survivors
+    null -> Unit // still resolving
+}
+```
+
+For `Present`, restrict the pager to the **compatible survivors** (step 5) and display the visible credential's plan (step 5/6): key `selection.value.selections` by `credentialId`, filter `resolved.candidates` to those whose PaSO credential id is a key, and for the visible page render `DynamicTransactionDataBlock(plan = selectionsById[pasoCredentialIdOf(visibleCandidate)]!!.plan)`. Derive `pasoCredentialIdOf(candidate)` the same way `PasoCandidateBuilder` does (first assignment whose `queryId` is targeted, else first assignment). The action-button labels and screen title come from that same `plan` (as Tasks 7/8 already wired, now sourced from the per-credential plan rather than a global `dynamicMetadata`). Compile-only (composables are not unit-tested, per the Task 7/11/12 precedent):
+
+Run: `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 9: Cease screen + strings (all three locales).** Add a `CeaseProcessingContent` composable modelled on `IncompatibleTransactionContent` (cancel-only, no affirmative — §7.4.2 step 4 "cease processing and inform the user") using new strings. Add to `values/strings.xml`, `values-de/strings.xml`, `values-fr/strings.xml` (French apostrophes as `\'`):
+
+```xml
+<!-- values/strings.xml -->
+<string name="present_no_compatible_credential_title">No usable credential</string>
+<string name="present_no_compatible_credential_body">None of your credentials can be used for this request from %1$s. Nothing was shared.</string>
+```
+
+```xml
+<!-- values-de/strings.xml -->
+<string name="present_no_compatible_credential_title">Kein verwendbarer Nachweis</string>
+<string name="present_no_compatible_credential_body">Keiner Ihrer Nachweise kann für diese Anfrage von %1$s verwendet werden. Es wurde nichts geteilt.</string>
+```
+
+```xml
+<!-- values-fr/strings.xml -->
+<string name="present_no_compatible_credential_title">Aucune attestation utilisable</string>
+<string name="present_no_compatible_credential_body">Aucune de vos attestations ne peut être utilisée pour cette demande de %1$s. Rien n\'a été partagé.</string>
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*StringsParityTest"` → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 10: Hash the selected entry in `buildPasoClaims`.** The consented credential's `CredentialSelection` (its `entry` and `plan.selectedLocaleTag`) must reach `PresentationClient.buildPasoClaims`. Thread it exactly as Task 9 threads the locale tag: carry `selection.entry.raw` and `selection.plan.selectedLocaleTag` from the consented pager page into the authorize callback and onto the authorized-presentation state `buildPasoClaims` reads. Change `buildPasoClaims(resolved, selectedEntry: UiTransactionData, displayLocaleTag: String)` to hash `selectedEntry.raw` (not `resolved.pasoEntry.raw`) and use `displayLocaleTag` (Task 9). When no PaSO plan was selected (non-PaSO flow), keep the current `resolved.pasoEntry` + `LocaleApplier.effectiveLocale(...)` fallback so non-advanced paths are unchanged. Extend the checker/selection test to lock the tag flow:
+
+```kotlin
+// EntrySelectorTest.kt — the consented selection carries the entry hashed into the KB-JWT
+@Test fun presentInitialCarriesEntryAndLocaleTagForClaims() = runTest {
+    val out = selector.select(
+        listOf(PasoCandidate("cred-A", listOf(entry("chosen")))),
+        evaluatorOf(("cred-A" to "chosen") to EntryVerdict.Compatible(plan(tag = "de"))),
+    )
+    val initial = (out as SelectionOutcome.Present).initial
+    assertEquals("chosen", initial.entry.raw)
+    assertEquals("de", initial.plan.selectedLocaleTag)
+}
+```
+
+Run: `gradle :app:testDebugUnitTest --tests "*.EntrySelectorTest"` → PASS. `gradle :app:compileDebugKotlin` → SUCCESS.
+
+- [ ] **Step 11: AGENTS.md + README currency (same commit as the wiring).** These correct assertions that Tasks 8 and 9 wrote for the interim whole-request-refusal behaviour.
+
+  - In `AGENTS.md`, in the strict-rendering bullet added by Task 8, replace "and the request is refused via the same cancel-only screen as a failed ad-hoc JWT" with:
+    "and that **credential is excluded** (PaSO Core §7.4.2 steps 2–5); the wallet advances to the next entry in array order, then the next candidate credential, and reaches the cancel-only screen only when **no compatible credential remains** (step 4, `SelectionOutcome.Cease`). A failed **ad-hoc** `metadata` JWT is different: it still refuses the whole request (§5.3, `SelectionOutcome.Refuse`), a wallet rule stricter than §7.4.2."
+  - In `README.md`, in the Presentation bullet amended by Task 9, replace "an entry that violates the label, value-type, or structural constraints is refused rather than degraded" with:
+    "an entry that violates the label, value-type, or structural constraints is skipped and the wallet selects the next compatible entry for that credential (PaSO Core §7.4.2), excluding the credential only if none conform; the request is refused outright only when no compatible credential remains, or when an ad-hoc metadata JWT fails verification."
+
+- [ ] **Step 12: Full run + commit the integration.** `gradle :app:compileDebugKotlin` (SUCCESS) and `gradle :app:testDebugUnitTest` — the **only** failures are the two permanent `TransactionDataTest` Base64 ones (judge by name). `gradle :app:testDebugUnitTest --tests "*StringsParityTest"` PASS.
+
+```bash
+git add app/src/main/java/dev/digitallabor/elpaso/wallet/ui/present/PresentScreen.kt \
+        app/src/main/java/dev/digitallabor/elpaso/wallet/presentation/PresentationClient.kt \
+        app/src/main/res/values/strings.xml app/src/main/res/values-de/strings.xml app/src/main/res/values-fr/strings.xml \
+        app/src/test/java/dev/digitallabor/elpaso/wallet/presentation/txdata/render/EntrySelectorTest.kt \
+        AGENTS.md README.md
+git commit -m "feat(present): §7.4.2 steps 1–5 — per-credential selection, cease screen, selected-entry claims"
+```
+
+---
+
 ### Task 14: Final documentation currency pass
 
-Not a code task — the doc-currency rule requires the repo's assertions to match the shipped behaviour. Tasks 8 and 9 already amended AGENTS.md and README for the strict-rendering + locale behaviour; this task records the two deliberate scope boundaries so a future reader does not read them as bugs.
+**Execution order:** this pass runs **after Task 15** — it is the final commit and must record Task 15's shipped behaviour (per-credential selection, cease-when-none, ad-hoc-only whole-request refusal). Task 15 is numbered after this task and sits just above it, but executes first; see its header. Do not run this pass until Task 15 is committed.
+
+Not a code task — the doc-currency rule requires the repo's assertions to match the shipped behaviour. Tasks 8, 9, and 15 already amended AGENTS.md and README for the strict-rendering, locale, and per-credential-selection behaviour; this task records the one remaining deliberate scope boundary (label displayability) so a future reader does not read it as a bug.
 
 **Files:**
 
 - Modify: `README.md` (Known limitations)
 
-- [ ] **Step 1: Add two Known-limitation bullets** to `README.md` (after the existing "Non-payment SCA…" bullet):
+- [ ] **Step 1: Add the remaining Known-limitation bullet** to `README.md` (after the existing "Non-payment SCA…" bullet). The generic-`transaction_data` whole-request-refusal limitation is **gone** — Task 15 implemented the §7.4.2 steps 1–5 per-credential selection loop and already corrected AGENTS.md/README to match. Only the label-displayability boundary remains:
 
 ```markdown
-- **Generic `transaction_data` incompatibility refuses the whole request.** PaSO Core
-  §7.4.2 steps 2–5 describe selecting the first *compatible* entry per credential and
-  excluding only that credential. The wallet instead treats any incompatible entry as a
-  whole-request refusal via the cancel-only screen — the same stance it already takes for a
-  failed ad-hoc metadata JWT. The per-credential "try the next entry" fallthrough loop is
-  not implemented.
 - **Label displayability is enforced by the length caps, not by runtime measurement.**
   PaSO View §2 also asks the wallet to treat a conforming label that still cannot be shown
   in full at the active accessibility text scale as not compatible. Because the §3.3 caps
@@ -1554,11 +2213,12 @@ git commit -m "docs: record strict-rendering scope boundaries in Known limitatio
 | F. Image: data-url/https+SRI, 512 KiB, 2048 px, ≤3 redirects, no cookies/creds/headers, static SVG (View §3, §5.3) | 6 (shape), 10 (fetch+integrity+caps), 11 (static-SVG bytes-only) |
 | G. Template: single-pass, missing→discard locale, ref restrictions, no-type→string (View §3) | 5; wildcard index binding 13 |
 | H. Locale selection §4 every-array-or-exclude + RFC4647 Lookup + `display_locale` | 8 (selection), 9 (`display_locale`) |
-| I. Display guarantees — item cap ≥200, no truncation, displayed-before-confirm, cease-processing (View §2) | 12; expanded count 13; sink reuses existing IncompatibleTransactionContent (7) |
+| I. Display guarantees — item cap ≥200, no truncation, displayed-before-confirm (View §2) | 12; expanded count 13. **Cease-processing** (no compatible credential) is §7.4.2 step 4 → **15** (see the §7.4.2 steps 1–5 row); the ad-hoc §5.3 refusal sink is still Task 7's `IncompatibleTransactionContent` |
 | J. Array wildcards recursive rule (View §2) | 13 |
-| K. Payload coverage — no uncovered fields, required present, directives supported, values conform (Core §7.4.2 step 2) | 2 (coverage/required), 4 (directives/values), 6 (image), 13 (wildcard coverage) |
+| K. Payload coverage — no uncovered fields, required present, directives supported, values conform (Core §7.4.2 step 2) | 2 (coverage/required), 4 (directives/values), 6 (image), 13 (wildcard coverage); the per-credential **selection** consuming this per-entry conformance predicate is Task 15 (next row) |
+| PaSO Core §7.4.2 steps 1–5 — identify candidate PaSO credentials (step 1); per credential select the first compatible entry in array order (step 2); on external-resource/SRI failure resume at the next entry (step 3); exclude a credential with no compatible entry; cease when none remain (step 4); present survivors as alternatives, display the initially-selected credential's step-2 entry (step 5) | **15** (`PasoCandidateBuilder` step 1; `EntrySelector` steps 2–5). Ad-hoc §5.3 failure → whole-request `Refuse` (retained, stricter than §7.4.2); generic incompatibility incl. `IMAGE_INTEGRITY_FAILED` → next-entry `Skip` |
 | View §5 security (injection, truncation, linkability, chrome spoofing) | Informative; realised by 4/5/10/12 (strict data-only rendering, no-truncation, safe fetch, containment) |
 
-**2. Placeholder scan** — no "TBD/TODO/handle appropriately"; every code step carries real Kotlin; shared types are defined once (Task 2's `RenderPlan.kt`) and referenced by exact name. The one soft edge — punycode homograph display (a View §3 SHOULD) — is explicitly marked optional in Task 4 with a pass-through acceptable, not left as a silent gap.
+**2. Placeholder scan** — no "TBD/TODO/handle appropriately"; every code step carries real Kotlin; shared types are defined once (Task 2's `RenderPlan.kt`) and referenced by exact name. The one soft edge — punycode homograph display (a View §3 SHOULD) — is explicitly marked optional in Task 4 with a pass-through acceptable, not left as a silent gap. Task 15 implements PaSO Core §7.4.2 steps 1–5 only; **§7.4.1 credential-set transposability** detection is a distinct subsection, is explicitly out of scope, and is recorded in the `PasoDetector` KDoc (Task 15 Step 6) rather than left as a silent gap.
 
-**3. Type consistency** — `ValidationResult`/`RenderPlan`/`RenderRow`/`RenderedValue`/`RenderedLabel`/`FormattedText`/`ImageSource`/`IncompatibilityReason` are declared once in Task 2 and used verbatim in Tasks 3–13. `LocaleSelection` (Task 2 bridge) is explicitly renamed to `Selection` in Task 8, and Task 9's test uses `Selection`. `ClaimMetadata.path: List<String?>` is fixed in Task 1 and consumed unchanged by every later task. `TransactionDataCompatibilityChecker.check` is non-`suspend` in Task 7 and becomes `suspend` in Task 10 — flagged in both. `RenderLimits` constant names are used identically across Tasks 1/3/10/12.
+**3. Type consistency** — `ValidationResult`/`RenderPlan`/`RenderRow`/`RenderedValue`/`RenderedLabel`/`FormattedText`/`ImageSource`/`IncompatibilityReason` are declared once in Task 2 and used verbatim in Tasks 3–13. `LocaleSelection` (Task 2 bridge) is explicitly renamed to `Selection` in Task 8, and Task 9's test uses `Selection`. `ClaimMetadata.path: List<String?>` is fixed in Task 1 and consumed unchanged by every later task. `TransactionDataCompatibilityChecker.check` is non-`suspend` in Task 7 and becomes `suspend` in Task 10 — flagged in both. `RenderLimits` constant names are used identically across Tasks 1/3/10/12. Task 15 introduces `EntrySelector`/`PasoCandidate`/`CredentialSelection`/`SelectionOutcome`/`EntryEvaluator`/`EntryVerdict` (pure loop keyed on `credentialId: String`, so the tests need no heavy `Credential`), consumes the now-`suspend` `check` once per (credential, entry) pair, and adds one member — `credentialIds: List<String>` — to `TransactionData`. The two incompatibility channels stay type-distinct: the ad-hoc §5.3 `TransactionMetadataResolver.Outcome.Incompatible` maps to `EntryVerdict.RefuseRequest` → `SelectionOutcome.Refuse` (whole request), while a generic-rendering `ValidationResult.Incompatible` maps to `EntryVerdict.Skip` (next entry) — never crossed.
