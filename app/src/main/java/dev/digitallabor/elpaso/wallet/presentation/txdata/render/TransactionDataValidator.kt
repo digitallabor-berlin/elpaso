@@ -187,8 +187,7 @@ class TransactionDataValidator(
                 // The one label this wallet cannot always show in full: it lives in a
                 // fixed-height app bar. See RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX.
                 displayableMax = RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX,
-            )
-                .onBad { return it }
+            ).onBad { return it }
         val affirmative =
             uiLabel(selection, UiLabelKeys.AFFIRMATIVE_ACTION, RenderLimits.AFFIRMATIVE_LABEL_MAX, ctx)
                 .onBad { return it }
