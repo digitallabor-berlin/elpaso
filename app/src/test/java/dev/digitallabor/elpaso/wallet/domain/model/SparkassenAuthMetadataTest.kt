@@ -134,7 +134,9 @@ class SparkassenAuthMetadataTest {
             HttpClientFactory.json
                 .parseToJsonElement("""{"login_datetime":"2026-08-25T14:30:00Z"}""") as JsonObject
 
-        val raw = ValueTypeFormatters.resolvePath(payload, claim.path)
+        // `path` is `List<String?>` since array wildcards landed; this fixture has none,
+        // so dropping nulls is a no-op that keeps the pre-wildcard resolver signature.
+        val raw = ValueTypeFormatters.resolvePath(payload, claim.path.filterNotNull())
         assertNotNull("claim path must resolve against the verifier payload", raw)
 
         val en = ValueTypeFormatters.format(raw, claim.valueType, Locale.US)
@@ -159,7 +161,7 @@ class SparkassenAuthMetadataTest {
                 .claims
                 .single()
         val empty = HttpClientFactory.json.parseToJsonElement("{}") as JsonObject
-        assertNull(ValueTypeFormatters.resolvePath(empty, claim.path))
+        assertNull(ValueTypeFormatters.resolvePath(empty, claim.path.filterNotNull()))
         assertEquals(
             ValueTypeFormatters.Formatted.PlainText(""),
             ValueTypeFormatters.format(null, claim.valueType, Locale.US),

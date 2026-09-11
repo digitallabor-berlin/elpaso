@@ -34,8 +34,16 @@ data class TransactionDataTypeMetadata(
     val uiLabels: UiLabels,
 )
 
+/**
+ * One claim of a `transaction_data` payload, per paso-proof-metadata.md §3.1.
+ *
+ * [path] resolves against the `transaction_data` `payload` object — not the credential.
+ * A **`null` segment is an array wildcard** (paso-view.md §2): it matches every element
+ * at that position, and the claim expands to one rendered row per element. Non-null
+ * segments are JSON object keys.
+ */
 data class ClaimMetadata(
-    val path: List<String>,
+    val path: List<String?>,
     val mandatory: Boolean,
     val valueType: String?,
     val display: List<ClaimDisplay>,
@@ -111,7 +119,8 @@ internal data class TransactionDataTypeDto(
 
 @Serializable
 internal data class ClaimMetadataDto(
-    val path: List<String> = emptyList(),
+    /** `null` elements are array wildcards; kotlinx decodes JSON `null` straight to `String?`. */
+    val path: List<String?> = emptyList(),
     val mandatory: Boolean = false,
     @SerialName("value_type") val valueType: String? = null,
     val display: List<ClaimDisplayDto> = emptyList(),

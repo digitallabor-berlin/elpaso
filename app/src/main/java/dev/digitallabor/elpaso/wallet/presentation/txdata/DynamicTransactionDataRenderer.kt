@@ -36,6 +36,7 @@ import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.pick
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.renderKey
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.util.Locale
@@ -118,7 +119,7 @@ private fun ClaimRow(
     locale: Locale,
 ) {
     val display = claim.display.pick(locale) ?: return
-    val rawLabel = display.name ?: claim.path.joinToString(".")
+    val rawLabel = display.name ?: claim.path.renderKey()
     // display_type formats the LABEL using the same rules as value_type — spec §3.
     val labelFormatted =
         ValueTypeFormatters.format(
@@ -129,7 +130,12 @@ private fun ClaimRow(
                 resolveTemplate(template, innerType, claimsArray, payload, locale)
             },
         )
-    val rawValueElement = ValueTypeFormatters.resolvePath(payload, claim.path)
+    // BRIDGE (temporary): `path` is now `List<String?>` with `null` meaning an array
+    // wildcard, but this composable predates wildcard support and resolves object keys
+    // only. Dropping the wildcards keeps existing non-wildcard metadata rendering exactly
+    // as before. The whole composable is replaced by the pre-validated RenderPlan, which
+    // is where wildcard expansion actually lands — this bridge dies with it.
+    val rawValueElement = ValueTypeFormatters.resolvePath(payload, claim.path.filterNotNull())
     val valueFormatted =
         ValueTypeFormatters.format(
             value =
@@ -145,7 +151,7 @@ private fun ClaimRow(
             resolveTemplate = { template, innerType ->
                 resolveTemplate(template, innerType, claimsArray, payload, locale)
             },
-            siblingLookup = { rel -> resolveSibling(payload, claim.path, rel) },
+            siblingLookup = { rel -> resolveSibling(payload, claim.path.filterNotNull(), rel) },
         )
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -231,7 +237,10 @@ private fun resolveTemplate(
             if (dropEntry) return@replace ""
             val idx = match.groupValues[1].toInt()
             val target = claimsArray.getOrNull(idx) ?: return@replace match.value
-            val targetValue = ValueTypeFormatters.resolvePath(payload, target.path)
+            // BRIDGE (temporary): see the note at the ClaimRow call site. Wildcards are
+            // dropped here too; index-bound wildcard references land with the real
+            // TemplateInterpolator.
+            val targetValue = ValueTypeFormatters.resolvePath(payload, target.path.filterNotNull())
             if (targetValue == null) {
                 dropEntry = true
                 return@replace ""
