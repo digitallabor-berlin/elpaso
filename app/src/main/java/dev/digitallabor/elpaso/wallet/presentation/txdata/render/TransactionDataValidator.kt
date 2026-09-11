@@ -179,7 +179,15 @@ class TransactionDataValidator(
         // Every label comes from the entry [selection] already matched. Re-picking one here
         // would be exactly the mixed-language failure PaSO View §4 rules out.
         val title =
-            uiLabel(selection, UiLabelKeys.TRANSACTION_TITLE, RenderLimits.TRANSACTION_TITLE_MAX, ctx)
+            uiLabel(
+                selection,
+                UiLabelKeys.TRANSACTION_TITLE,
+                RenderLimits.TRANSACTION_TITLE_MAX,
+                ctx,
+                // The one label this wallet cannot always show in full: it lives in a
+                // fixed-height app bar. See RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX.
+                displayableMax = RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX,
+            )
                 .onBad { return it }
         val affirmative =
             uiLabel(selection, UiLabelKeys.AFFIRMATIVE_ACTION, RenderLimits.AFFIRMATIVE_LABEL_MAX, ctx)
@@ -303,11 +311,12 @@ class TransactionDataValidator(
         key: String,
         max: Int,
         ctx: Ctx,
+        displayableMax: Int? = null,
     ): LabelOutcome {
         val entry = selection.uiLabel[key] ?: return LabelOutcome.Ok(null)
         // A ui_labels entry belongs to no claim, so it has no wildcard depth of its own:
         // it may only reference claims whose paths carry none.
-        return labelFrom(entry.value, entry.valueType, max, key, ctx, bound = emptyList())
+        return labelFrom(entry.value, entry.valueType, max, key, ctx, bound = emptyList(), displayableMax = displayableMax)
     }
 
     /**
@@ -324,6 +333,8 @@ class TransactionDataValidator(
         where: String,
         ctx: Ctx,
         bound: List<Int>,
+        /** A tighter, wallet-specific bound for slots whose container cannot grow; null when none applies. */
+        displayableMax: Int? = null,
     ): LabelOutcome {
         if (type != null && type !in ALLOWED_LABEL_TYPES) {
             return LabelOutcome.Bad(
@@ -366,7 +377,12 @@ class TransactionDataValidator(
             }
 
         characterViolation(resolved, where)?.let { return LabelOutcome.Bad(it) }
+        // §3.3's interop cap first, so a label that breaks *it* is reported as the issuer
+        // bug it is, rather than as this wallet's display shortfall.
         lengthViolation(resolved, max, where)?.let { return LabelOutcome.Bad(it) }
+        displayableMax?.let { limit ->
+            displayabilityViolation(resolved, limit, where)?.let { return LabelOutcome.Bad(it) }
+        }
 
         val content =
             if (type == MINI_MARKDOWN || type == TEMPLATE_MINI_MARKDOWN) {
@@ -415,6 +431,31 @@ class TransactionDataValidator(
             reason(
                 IncompatibilityReason.Code.LABEL_TOO_LONG,
                 "$where is $clusters grapheme clusters, over the $max cap",
+            )
+        } else {
+            null
+        }
+    }
+
+    /**
+     * View §2's last resort: a label within its §3.3 cap that this wallet still cannot put
+     * on screen in full makes the entry not compatible.
+     *
+     * Refusal is the *only* permitted outcome here — §2 forbids truncating or eliding, and
+     * forbids proceeding with a partially displayed label. Drawing it and hoping is the
+     * failure mode §5.2 describes, where attacker-influenced text truncates to an
+     * attacker-chosen prefix.
+     */
+    private fun displayabilityViolation(
+        text: String,
+        max: Int,
+        where: String,
+    ): IncompatibilityReason? {
+        val clusters = graphemes.count(text)
+        return if (clusters > max) {
+            reason(
+                IncompatibilityReason.Code.LABEL_NOT_DISPLAYABLE,
+                "$where is $clusters grapheme clusters; this wallet can display at most $max in that position",
             )
         } else {
             null

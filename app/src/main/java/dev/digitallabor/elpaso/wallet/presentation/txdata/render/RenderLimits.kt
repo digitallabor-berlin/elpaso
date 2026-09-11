@@ -40,6 +40,41 @@ object RenderLimits {
      */
     const val UNKNOWN_UI_ELEMENT_MAX = 100
 
+    // --- Wallet display capability (View §2) ---
+
+    /**
+     * The longest `transaction_title` this wallet can actually put on screen in full.
+     *
+     * **This is not a spec cap, and it is lower than one.** §3.3 permits 100 grapheme
+     * clusters, and states the caps are "chosen so that a conforming Wallet can always
+     * display a conforming label in full" — so the gap between 100 and this number is a
+     * shortfall on the wallet's side, not an issuer overreach. It exists because the title
+     * is rendered in `CenterAlignedTopAppBar`, a single-row container of fixed 64dp height
+     * at `titleLarge` (22sp), which cannot grow to fit three or four wrapped lines.
+     *
+     * §2 names exactly this situation and its remedy: "If, despite this, a conforming label
+     * cannot be displayed in full in the active display configuration, the Wallet SHALL NOT
+     * proceed with a partially displayed label: the `transaction_data` entry SHALL be
+     * treated as not compatible." Refusing is therefore conformant; silently clipping is
+     * not. §5.2 is why the difference matters — attacker-influenced text truncates to
+     * attacker-chosen prefixes.
+     *
+     * **The value is a calibration, and an imperfect one.** It approximates two wrapped
+     * lines at default text scale on a ~360dp-wide screen (~264dp of title width after the
+     * centred layout's icon insets, ~22 clusters per line at 22sp). It is therefore *not*
+     * conservative at larger accessibility scales, where fewer lines fit and a title of
+     * this length still clips. Tightening it far enough to hold at every scale would refuse
+     * most ordinary titles, so this bound narrows the violation rather than closing it. The
+     * two real fixes are lowering the cap in the spec, or moving the title into the
+     * scrolling content where it can wrap freely; both are deferred decisions. Verify
+     * against a device before trusting the exact number.
+     *
+     * Only the title carries such a bound. Every other label — claim names, action labels,
+     * the security hint — renders in a container that grows, so §3.3's cap is the only
+     * limit that applies to them.
+     */
+    const val DISPLAYABLE_TRANSACTION_TITLE_MAX = 40
+
     // --- Structural caps (Metadata §3.3) ---
 
     /** Maximum claim metadata objects in one `transaction_data_types` entry. */

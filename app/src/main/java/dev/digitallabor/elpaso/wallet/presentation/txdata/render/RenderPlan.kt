@@ -162,6 +162,17 @@ data class IncompatibilityReason(
         LABEL_DIRECTIONAL_OVERRIDE,
         LABEL_UNSUPPORTED_TYPE,
 
+        // Wallet display capability — View §2
+
+        /**
+         * A label that conforms to §3.3 but that *this* wallet's layout cannot show in
+         * full. Deliberately distinct from [LABEL_TOO_LONG]: that one says the issuer
+         * exceeded the interoperability cap, this one says the wallet fell short of it.
+         * Collapsing the two would send whoever reads the log looking for an issuer bug
+         * that does not exist.
+         */
+        LABEL_NOT_DISPLAYABLE,
+
         // Values — View §3
         UNSUPPORTED_VALUE_TYPE,
         VALUE_TYPE_MISMATCH,

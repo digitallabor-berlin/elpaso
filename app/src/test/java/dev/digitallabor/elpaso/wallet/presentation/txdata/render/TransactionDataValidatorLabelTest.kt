@@ -97,11 +97,62 @@ class TransactionDataValidatorLabelTest {
 
     @Test
     fun transactionTitleOverOneHundredIsIncompatible() {
+        // Also over the displayable bound below, so this doubles as the ordering pin: the
+        // §3.3 breach is reported, not the wallet's narrower display shortfall.
         val ui = UiLabels(transactionTitle = listOf(LocalizedLabel("en", "t".repeat(101), null)))
         assertEquals(
             IncompatibilityReason.Code.LABEL_TOO_LONG,
             reasonOf(validate(withUiLabels(ui), payload)),
         )
+    }
+
+    // --- Wallet display capability (View §2) ---
+    //
+    // §3.3 permits a 100-cluster `transaction_title`, but this wallet renders it in a
+    // fixed-height app bar that cannot show that much. §2's remedy for a conforming label
+    // the wallet cannot display in full is refusal — never a clipped screen — so the
+    // shortfall surfaces as an incompatible entry rather than as a truncated title.
+
+    @Test
+    fun transactionTitleAtTheDisplayableBoundIsCompatible() {
+        val at = "t".repeat(RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX)
+        val ui = UiLabels(transactionTitle = listOf(LocalizedLabel("en", at, null)))
+        val r = validate(withUiLabels(ui), payload)
+        assertTrue("the bound is the last accepted length, not the first refused — got $r", r is ValidationResult.Compatible)
+    }
+
+    /**
+     * The case the bound exists for: a title the *issuer* is entitled to send — well inside
+     * §3.3's 100 — that this wallet still cannot put on screen in full.
+     */
+    @Test
+    fun aSpecConformingTitleTheWalletCannotShowIsRefusedNotClipped() {
+        val overDisplayable = "t".repeat(RenderLimits.DISPLAYABLE_TRANSACTION_TITLE_MAX + 1)
+        assertTrue(
+            "fixture must stay inside the §3.3 cap or it tests the wrong rule",
+            overDisplayable.length <= RenderLimits.TRANSACTION_TITLE_MAX,
+        )
+        val ui = UiLabels(transactionTitle = listOf(LocalizedLabel("en", overDisplayable, null)))
+        assertEquals(
+            IncompatibilityReason.Code.LABEL_NOT_DISPLAYABLE,
+            reasonOf(validate(withUiLabels(ui), payload)),
+        )
+    }
+
+    /**
+     * The bound is title-only. Every other label renders in a container that grows, so
+     * §3.3's cap is the only limit on them — a 160-cluster `security_hint` is displayable
+     * precisely because the hint banner wraps.
+     */
+    @Test
+    fun otherUiLabelsCarryNoDisplayableBound() {
+        val ui =
+            UiLabels(
+                securityHint = listOf(LocalizedLabel("en", "h".repeat(RenderLimits.SECURITY_HINT_MAX), null)),
+                affirmativeActionLabel = listOf(LocalizedLabel("en", "a".repeat(RenderLimits.AFFIRMATIVE_LABEL_MAX), null)),
+            )
+        val r = validate(withUiLabels(ui), payload)
+        assertTrue("only the app-bar title is display-bounded — got $r", r is ValidationResult.Compatible)
     }
 
     @Test
