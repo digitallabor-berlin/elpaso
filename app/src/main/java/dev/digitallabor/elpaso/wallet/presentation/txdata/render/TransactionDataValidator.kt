@@ -448,7 +448,7 @@ class TransactionDataValidator(
             // that the value is a string; no image row is consumed before that pass lands.
             ValueTypeFormatters.IMAGE ->
                 if (isString) {
-                    ValueOutcome.Ok(RenderedValue.Text(FormattedText.Plain(text)))
+                    imageOutcome(text, claim, ctx, where)
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string URL or data URL")
                 }
@@ -513,6 +513,70 @@ class TransactionDataValidator(
         code: IncompatibilityReason.Code,
         detail: String,
     ): ValueOutcome = ValueOutcome.Bad(reason(code, detail))
+
+    // --- Images, the part decidable without I/O (paso-view.md §3) ---
+
+    /**
+     * Settles an image's *source*: a data URL becomes bytes here and now; an `https` URL
+     * becomes a [ImageSource.Remote] carrying the hash a later fetch must verify against.
+     *
+     * The asymmetry is the point. A data URL is self-contained, so §5.3's linkability
+     * concern does not arise and there is nothing to verify beyond decoding it. A remote
+     * URL is a host the *verifier* named, and without the issuer-signed `#integrity`
+     * companion that host could serve whatever it liked at consent time — so an image
+     * lacking a usable hash never becomes a row at all, rather than becoming one the
+     * fetch might later fail to justify.
+     */
+    private fun imageOutcome(
+        raw: String,
+        claim: ClaimMetadata,
+        ctx: Ctx,
+        where: String,
+    ): ValueOutcome {
+        if (raw.startsWith(DATA_URL_SCHEME, ignoreCase = true)) {
+            // Guard before decoding, not after: base64 inflates by 4/3, so anything longer
+            // than that multiple of the cap cannot decode to a conforming image, and
+            // decoding it first would do a verifier's allocation work for it.
+            if (raw.length > RenderLimits.IMAGE_MAX_ENCODED_BYTES * 4 / 3 + DATA_URL_HEADER_SLACK) {
+                return bad(IncompatibilityReason.Code.IMAGE_TOO_LARGE, "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap")
+            }
+            val decoded =
+                DataUrl.parse(raw)
+                    ?: return bad(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, "$where is not a well-formed data URL")
+            if (decoded.bytes.size > RenderLimits.IMAGE_MAX_ENCODED_BYTES) {
+                return bad(IncompatibilityReason.Code.IMAGE_TOO_LARGE, "$where exceeds the ${RenderLimits.IMAGE_MAX_ENCODED_BYTES}-byte cap")
+            }
+            return ValueOutcome.Ok(RenderedValue.Image(ImageSource.Inline(decoded.bytes, decoded.mediaType)))
+        }
+
+        val uri = runCatching { URI(raw) }.getOrNull()
+        if (uri?.scheme?.lowercase(Locale.ROOT) != HTTPS) {
+            return bad(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, "$where must be a data URL or an https URL")
+        }
+
+        val integrity = integritySibling(ctx.payload, claim.path.filterNotNull())
+        if (integrity == null || Sri.parse(integrity) == null) {
+            return bad(
+                IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING,
+                "$where is a remote image without a usable '$INTEGRITY_SUFFIX' companion",
+            )
+        }
+        return ValueOutcome.Ok(RenderedValue.Image(ImageSource.Remote(raw, integrity)))
+    }
+
+    /**
+     * The `<leaf>#integrity` field beside an image claim's own leaf — §3 places it "at the
+     * same path suffixed with `#integrity`", so it lives in the image's parent object.
+     */
+    private fun integritySibling(
+        payload: JsonObject,
+        path: List<String>,
+    ): String? {
+        val leaf = path.lastOrNull() ?: return null
+        val parent =
+            if (path.size == 1) payload else resolve(payload, path.dropLast(1)) as? JsonObject ?: return null
+        return (parent["$leaf$INTEGRITY_SUFFIX"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    }
 
     /**
      * §3.3 applies the directional-character prohibition to `transaction_data` payload
@@ -732,6 +796,10 @@ class TransactionDataValidator(
         const val MINI_MARKDOWN = "mini_markdown"
         const val TEMPLATE_MINI_MARKDOWN = "template:mini_markdown"
         const val HTTPS = "https"
+        const val DATA_URL_SCHEME = "data:"
+
+        /** Room for the `data:<mediatype>;base64,` prefix in the pre-decode length guard. */
+        const val DATA_URL_HEADER_SLACK = 128
 
         /**
          * Every `value_type` PaSO View §3 defines.
