@@ -5,6 +5,7 @@ import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
 import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
 import dev.digitallabor.elpaso.wallet.presentation.txdata.ValueTypeFormatters
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -54,14 +55,122 @@ class TransactionDataValidator(
         selection: Selection,
     ): ValidationResult {
         structuralViolation(metadata)?.let { return it.asResult() }
-        payloadViolation(metadata, payload)?.let { return it.asResult() }
-        return buildPlan(metadata, payload, selection)
+        // §2's wildcard rule decides which claim *instances* exist, and everything from
+        // here on is expressed over instances rather than declarations: coverage, the
+        // mandatory check, the `#integrity` lookup and the item count each need a concrete
+        // array index rather than a pattern.
+        val instances = expandClaims(metadata.claims, payload)
+        payloadViolation(metadata.claims, instances, payload)?.let { return it.asResult() }
+        return buildPlan(metadata, instances, payload, selection)
+    }
+
+    // --- Array wildcard expansion (paso-view.md §2) ---
+
+    /** One claim, at one concrete location, with the array indices that got it there. */
+    private data class ResolvedClaimInstance(
+        /** Position in the declared `claims` array — the key [Selection.claimDisplay] uses. */
+        val claimIndex: Int,
+        val claim: ClaimMetadata,
+        val resolvedPath: ResolvedPath,
+        /** The index bound to each wildcard, outermost first; what a template reference binds against. */
+        val boundIndices: List<Int>,
+    )
+
+    /** A claim part-way through expansion: [remaining] is the still-unresolved suffix of its path. */
+    private data class Pending(
+        val claimIndex: Int,
+        val claim: ClaimMetadata,
+        val remaining: List<String?>,
+    )
+
+    /**
+     * §2's recursive rule, which produces the rendered order:
+     *
+     * > 1. Render all claims whose remaining path contains no `null`, in declared order.
+     * > 2. Group the remaining claims by their shared path prefix up to and including the
+     * >    first `null`. For each such group, in the order of its first declared claim,
+     * >    iterate over the array elements at the `null` position: for each element, apply
+     * >    this rule recursively to the group's claims with the `null` resolved to that
+     * >    element's index.
+     *
+     * The resulting order is deliberately *not* the declared order. Step 1 completes before
+     * step 2 begins, so every scalar is hoisted above every expanded list — a verifier
+     * cannot slip a total in between two line items and have it read as belonging to one of
+     * them. Within an element the group's claims keep declared order, so a line item still
+     * reads the way the issuer wrote it.
+     */
+    private fun expandClaims(
+        claims: List<ClaimMetadata>,
+        payload: JsonObject,
+    ): List<ResolvedClaimInstance> {
+        val out = mutableListOf<ResolvedClaimInstance>()
+        expandLevel(
+            pending = claims.mapIndexed { index, claim -> Pending(index, claim, claim.path) },
+            prefix = emptyList(),
+            bound = emptyList(),
+            payload = payload,
+            out = out,
+        )
+        return out
+    }
+
+    private fun expandLevel(
+        pending: List<Pending>,
+        prefix: ResolvedPath,
+        bound: List<Int>,
+        payload: JsonObject,
+        out: MutableList<ResolvedClaimInstance>,
+    ) {
+        // Step 1 — everything fully resolved at this level, in declared order.
+        pending
+            .filter { candidate -> candidate.remaining.none { it == null } }
+            .sortedBy { it.claimIndex }
+            .forEach { candidate ->
+                out +=
+                    ResolvedClaimInstance(
+                        claimIndex = candidate.claimIndex,
+                        claim = candidate.claim,
+                        resolvedPath = prefix + candidate.remaining.map { PathStep.Key(it!!) },
+                        boundIndices = bound,
+                    )
+            }
+
+        // Step 2 — group by the prefix up to *and including* the first wildcard, so two
+        // claims under the same array iterate together and their element's fields stay
+        // adjacent on screen.
+        val wildcarded = pending.filter { candidate -> candidate.remaining.any { it == null } }
+        if (wildcarded.isEmpty()) return
+
+        wildcarded
+            .groupBy { it.remaining.subList(0, it.remaining.indexOf(null) + 1) }
+            .entries
+            .sortedBy { (_, members) -> members.minOf { it.claimIndex } }
+            .forEach { (groupPrefix, members) ->
+                val arrayPath = prefix + groupPrefix.dropLast(1).map { PathStep.Key(it!!) }
+                // Not an array, or absent: the group contributes no instances. A mandatory
+                // claim among them is caught by the mandatory check, which treats "expanded
+                // to nothing" as the required data being absent.
+                val array = resolveValue(payload, arrayPath) as? JsonArray ?: return@forEach
+                array.indices.forEach { elementIndex ->
+                    expandLevel(
+                        pending =
+                            members.map {
+                                Pending(it.claimIndex, it.claim, it.remaining.drop(groupPrefix.size))
+                            },
+                        prefix = arrayPath + PathStep.Index(elementIndex),
+                        bound = bound + elementIndex,
+                        payload = payload,
+                        out = out,
+                    )
+                }
+            }
     }
 
     // --- Plan construction ---
 
     private fun buildPlan(
         metadata: TransactionDataTypeMetadata,
+        instances: List<ResolvedClaimInstance>,
         payload: JsonObject,
         selection: Selection,
     ): ValidationResult {
@@ -96,22 +205,23 @@ class TransactionDataValidator(
         }
 
         val rows = mutableListOf<RenderRow>()
-        for ((index, claim) in metadata.claims.withIndex()) {
+        for (instance in instances) {
             // Absent from the map means the claim has no `display` array — §3.1 makes that
             // an internal value "irrelevant to the user's consent", so it is not a rendered
             // item and never reaches the screen.
-            val display = selection.claimDisplay[index] ?: continue
+            val display = selection.claimDisplay[instance.claimIndex] ?: continue
 
-            val where = "claim '${claim.path.renderKey()}'"
-            val wildcards = claim.path.wildcardCount()
+            // The concrete location, not the pattern: two rows from the same claim would
+            // otherwise be indistinguishable in a log.
+            val where = "claim '${instance.resolvedPath.describe()}'"
             val label =
                 display.name?.let { name ->
-                    labelFrom(name, display.displayType, RenderLimits.CLAIM_NAME_MAX, where, ctx, wildcards)
+                    labelFrom(name, display.displayType, RenderLimits.CLAIM_NAME_MAX, where, ctx, instance.boundIndices)
                         .onBad { return it }
                 }
 
-            val raw = resolve(payload, claim.path.filterNotNull())
-            when (val outcome = valueOutcome(claim, raw, ctx, where, wildcards)) {
+            val raw = resolveValue(payload, instance.resolvedPath)
+            when (val outcome = valueOutcome(instance, raw, ctx, where)) {
                 is ValueOutcome.Bad -> return outcome.reason.asResult()
 
                 // An optional claim whose field is absent: no row, and that is not an error.
@@ -197,7 +307,7 @@ class TransactionDataValidator(
         val entry = selection.uiLabel[key] ?: return LabelOutcome.Ok(null)
         // A ui_labels entry belongs to no claim, so it has no wildcard depth of its own:
         // it may only reference claims whose paths carry none.
-        return labelFrom(entry.value, entry.valueType, max, key, ctx, wildcards = 0)
+        return labelFrom(entry.value, entry.valueType, max, key, ctx, bound = emptyList())
     }
 
     /**
@@ -213,7 +323,7 @@ class TransactionDataValidator(
         max: Int,
         where: String,
         ctx: Ctx,
-        wildcards: Int,
+        bound: List<Int>,
     ): LabelOutcome {
         if (type != null && type !in ALLOWED_LABEL_TYPES) {
             return LabelOutcome.Bad(
@@ -230,7 +340,7 @@ class TransactionDataValidator(
         // past its cap is just as unrenderable as a long literal one.
         val resolved =
             if (type != null && type.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX)) {
-                when (val out = templates.interpolate(text, ctx.claims, ctx.payload, ctx.locale, wildcards)) {
+                when (val out = templates.interpolate(text, ctx.claims, ctx.payload, ctx.locale, bound)) {
                     is TemplateInterpolator.Outcome.Ok -> {
                         out.text
                     }
@@ -338,12 +448,12 @@ class TransactionDataValidator(
      * value does not match a type the wallet does implement — a malformed request.
      */
     private fun valueOutcome(
-        claim: ClaimMetadata,
+        instance: ResolvedClaimInstance,
         raw: JsonElement?,
         ctx: Ctx,
         where: String,
-        wildcards: Int,
     ): ValueOutcome {
+        val claim = instance.claim
         val locale = ctx.locale
         val declared = claim.valueType
 
@@ -388,7 +498,7 @@ class TransactionDataValidator(
                 if (!isString) {
                     return bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is a template and must be a string")
                 }
-                when (val out = templates.interpolate(rawText(raw), ctx.claims, ctx.payload, locale, wildcards)) {
+                when (val out = templates.interpolate(rawText(raw), ctx.claims, ctx.payload, locale, instance.boundIndices)) {
                     is TemplateInterpolator.Outcome.Ok -> {
                         out.text
                     }
@@ -473,7 +583,7 @@ class TransactionDataValidator(
             // that the value is a string; no image row is consumed before that pass lands.
             ValueTypeFormatters.IMAGE -> {
                 if (isString) {
-                    imageOutcome(text, claim, ctx, where)
+                    imageOutcome(text, instance.resolvedPath, ctx, where)
                 } else {
                     bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where must be a string URL or data URL")
                 }
@@ -557,7 +667,7 @@ class TransactionDataValidator(
      */
     private fun imageOutcome(
         raw: String,
-        claim: ClaimMetadata,
+        resolvedPath: ResolvedPath,
         ctx: Ctx,
         where: String,
     ): ValueOutcome {
@@ -589,7 +699,7 @@ class TransactionDataValidator(
             return bad(IncompatibilityReason.Code.IMAGE_INVALID_SOURCE, "$where must be a data URL or an https URL")
         }
 
-        val integrity = integritySibling(ctx.payload, claim.path.filterNotNull())
+        val integrity = integritySibling(ctx.payload, resolvedPath)
         if (integrity == null || Sri.parse(integrity) == null) {
             return bad(
                 IncompatibilityReason.Code.IMAGE_INTEGRITY_MISSING,
@@ -640,12 +750,15 @@ class TransactionDataValidator(
      */
     private fun integritySibling(
         payload: JsonObject,
-        path: List<String>,
+        path: ResolvedPath,
     ): String? {
-        val leaf = path.lastOrNull() ?: return null
+        // Looked up at the *resolved* location, so `items[1].logo` finds
+        // `items[1].logo#integrity` rather than some other element's companion.
+        val leaf = path.lastOrNull() as? PathStep.Key ?: return null
+        val parentPath = path.dropLast(1)
         val parent =
-            if (path.size == 1) payload else resolve(payload, path.dropLast(1)) as? JsonObject ?: return null
-        return (parent["$leaf$INTEGRITY_SUFFIX"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (parentPath.isEmpty()) payload else resolveValue(payload, parentPath) as? JsonObject ?: return null
+        return (parent["${leaf.key}$INTEGRITY_SUFFIX"] as? JsonPrimitive)?.takeIf { it.isString }?.content
     }
 
     /**
@@ -772,14 +885,22 @@ class TransactionDataValidator(
     // --- Payload conformance (paso-core.md §7.4.2 step 2) ---
 
     private fun payloadViolation(
-        metadata: TransactionDataTypeMetadata,
+        claims: List<ClaimMetadata>,
+        instances: List<ResolvedClaimInstance>,
         payload: JsonObject,
     ): IncompatibilityReason? {
         payloadCharacterViolation(payload)?.let { return it }
-        coverageViolation(metadata.claims, payload)?.let { return it }
+        coverageViolation(claims, instances, payload)?.let { return it }
 
-        for (claim in metadata.claims) {
-            if (claim.mandatory && resolve(payload, claim.path.filterNotNull()) == null) {
+        for ((index, claim) in claims.withIndex()) {
+            if (!claim.mandatory) continue
+            val expanded = instances.filter { it.claimIndex == index }
+            // A wildcard claim over a missing or empty array expands to nothing. Treating
+            // that as satisfied would make `mandatory` vacuous exactly where it matters —
+            // a required line-item field would be "present" because there are no line
+            // items — so no instances is itself the violation.
+            val missing = expanded.isEmpty() || expanded.any { resolveValue(payload, it.resolvedPath) == null }
+            if (missing) {
                 return reason(
                     IncompatibilityReason.Code.MISSING_REQUIRED_FIELD,
                     "required claim '${claim.path.renderKey()}' is absent from the payload",
@@ -800,31 +921,56 @@ class TransactionDataValidator(
      * A claim path *prefixes* the fields it covers, so a claim on `payee` covers
      * `payee.name`. The `#integrity` companion of an image claim is covered by that claim
      * explicitly, per the spec's parenthetical.
+     *
+     * Claim paths are matched as *patterns* — a `null` matches any array index — while the
+     * payload's fields are enumerated as concrete locations. Flattening the pattern with
+     * `filterNotNull()` instead, as this did before wildcards existed, turns
+     * `items.[].amount` into `items.amount`, which prefixes nothing: every field under
+     * every array then reported as uncovered, and no wildcard claim could ever be
+     * compatible.
      */
     private fun coverageViolation(
         claims: List<ClaimMetadata>,
+        instances: List<ResolvedClaimInstance>,
         payload: JsonObject,
     ): IncompatibilityReason? {
-        val claimPaths = claims.map { it.path.filterNotNull() }
-        val integrityPaths =
-            claims
-                .filter { it.valueType == IMAGE_VALUE_TYPE }
-                .mapNotNull { claim ->
-                    val concrete = claim.path.filterNotNull()
-                    concrete.lastOrNull()?.let { leaf -> concrete.dropLast(1) + "$leaf$INTEGRITY_SUFFIX" }
+        val patterns = claims.map { it.path }
+        // Enumerated from expanded instances, not from declarations: the companion sits
+        // beside a *resolved* leaf, so `items[1].logo` is accompanied by
+        // `items[1].logo#integrity` and by no other element's.
+        val integrityPaths: List<ResolvedPath> =
+            instances
+                .filter { it.claim.valueType == IMAGE_VALUE_TYPE }
+                .mapNotNull { instance ->
+                    val leaf = instance.resolvedPath.lastOrNull() as? PathStep.Key ?: return@mapNotNull null
+                    instance.resolvedPath.dropLast(1) + PathStep.Key("${leaf.key}$INTEGRITY_SUFFIX")
                 }
-        val covered = claimPaths + integrityPaths
 
         for (field in leafPaths(payload)) {
-            if (covered.none { it.size <= field.size && field.subList(0, it.size) == it }) {
-                return reason(
-                    IncompatibilityReason.Code.PAYLOAD_FIELD_UNCOVERED,
-                    "payload field '${field.joinToString(".")}' is not covered by any claim path",
-                )
-            }
+            if (patterns.any { field.isCoveredBy(it) }) continue
+            if (integrityPaths.any { it.size <= field.size && field.subList(0, it.size) == it }) continue
+            // An *empty* container on the way to a declared claim hides nothing: `items: []`
+            // is how "no line items" is spelled, and §2's rule iterates it zero times.
+            // Emptiness is what makes this safe to allow — a scalar at the same position
+            // would be data no claim can render, which is precisely what step 2 excludes.
+            if (isEmptyContainer(payload, field) && patterns.any { field.leadsTo(it) }) continue
+            return reason(
+                IncompatibilityReason.Code.PAYLOAD_FIELD_UNCOVERED,
+                "payload field '${field.describe()}' is not covered by any claim path",
+            )
         }
         return null
     }
+
+    private fun isEmptyContainer(
+        payload: JsonObject,
+        path: ResolvedPath,
+    ): Boolean =
+        when (val node = resolveValue(payload, path)) {
+            is JsonObject -> node.isEmpty()
+            is JsonArray -> node.isEmpty()
+            else -> false
+        }
 
     /**
      * Every leaf field path in [obj], descending only through non-empty objects.
@@ -836,28 +982,28 @@ class TransactionDataValidator(
      * an absent mandatory field report as an uncovered one, which is the opposite
      * diagnosis.)
      *
-     * Arrays are leaves for now; descending into them is what wildcard expansion adds.
+     * Arrays are descended into as well, yielding an [PathStep.Index] step per element,
+     * because a wildcard claim covers `items.0.amount` and not `items`. An empty array is
+     * therefore a leaf in its own right, exactly as an empty object is.
      */
-    private fun leafPaths(obj: JsonObject): List<List<String>> =
-        obj.flatMap { (key, child) ->
-            if (child is JsonObject && child.isNotEmpty()) {
-                leafPaths(child).map { listOf(key) + it }
-            } else {
-                listOf(listOf(key))
+    private fun leafPaths(
+        element: JsonElement,
+        prefix: ResolvedPath = emptyList(),
+    ): List<ResolvedPath> =
+        when {
+            element is JsonObject && element.isNotEmpty() -> {
+                element.flatMap { (key, child) -> leafPaths(child, prefix + PathStep.Key(key)) }
+            }
+
+            element is JsonArray && element.isNotEmpty() -> {
+                element.flatMapIndexed { index, child -> leafPaths(child, prefix + PathStep.Index(index)) }
+            }
+
+            // The root itself is not a field, so an empty payload yields no paths at all.
+            else -> {
+                if (prefix.isEmpty()) emptyList() else listOf(prefix)
             }
         }
-
-    private fun resolve(
-        root: JsonObject,
-        path: List<String>,
-    ): JsonElement? {
-        var node: JsonElement = root
-        for (segment in path) {
-            val obj = node as? JsonObject ?: return null
-            node = obj[segment] ?: return null
-        }
-        return node
-    }
 
     private fun reason(
         code: IncompatibilityReason.Code,

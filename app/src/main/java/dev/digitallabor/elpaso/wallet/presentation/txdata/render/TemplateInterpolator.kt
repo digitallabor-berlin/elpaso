@@ -51,17 +51,21 @@ class TemplateInterpolator {
      * @param claims the transaction data type's full `claims` array — placeholder indices
      *   are positions in it
      * @param payload the verifier-supplied `transaction_data` `payload`
-     * @param referencingWildcards how many array wildcards the *referencing* claim's path
-     *   carries. §3 lets a placeholder reference only claims with the same number or fewer,
-     *   because each wildcard in the referenced path binds to the corresponding index in
-     *   the referencing one — a deeper reference has an index with nothing to bind to.
+     * @param boundIndices the array indices the *referencing* claim instance resolved its
+     *   own wildcards to, outermost first. §3: "Placeholders MUST only reference claims
+     *   whose `path` contains the same number or fewer `null` entries than the referencing
+     *   claim's `path`; each `null` in the referenced claim's `path` is resolved to the
+     *   same array index as the corresponding `null` in the referencing claim's `path`."
+     *   So this list is both the permission check (its size is the ceiling on a reference's
+     *   wildcard count) and the binding itself. A claim with no wildcards passes an empty
+     *   list, which permits only wildcard-free references — the previous behaviour.
      */
     fun interpolate(
         template: String,
         claims: List<ClaimMetadata>,
         payload: JsonObject,
         locale: Locale,
-        referencingWildcards: Int = 0,
+        boundIndices: List<Int> = emptyList(),
     ): Outcome {
         var failure: Outcome? = null
 
@@ -82,13 +86,13 @@ class TemplateInterpolator {
                     targetType != ValueTypeFormatters.IMAGE &&
                         targetType != ValueTypeFormatters.LABEL_ONLY &&
                         targetType?.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX) != true &&
-                        target.path.wildcardCount() <= referencingWildcards
+                        target.path.wildcardCount() <= boundIndices.size
                 if (!referenceable) {
                     failure = Outcome.Incompatible(IncompatibilityReason.Code.TEMPLATE_BAD_REFERENCE)
                     return@replace ""
                 }
 
-                val value = resolve(payload, target.path.filterNotNull())
+                val value = resolveValue(payload, bind(target.path, boundIndices))
                 if (value == null) {
                     failure = Outcome.DiscardLocaleEntry
                     return@replace ""
@@ -124,16 +128,27 @@ class TemplateInterpolator {
             is ValueTypeFormatters.Formatted.LabelOnly -> ""
         }
 
-    private fun resolve(
-        root: JsonObject,
-        path: List<String>,
-    ): JsonElement? {
-        var node: JsonElement = root
-        for (segment in path) {
-            val obj = node as? JsonObject ?: return null
-            node = obj[segment] ?: return null
+    /**
+     * Binds a referenced claim's wildcards to the referencing instance's indices,
+     * positionally: the referenced path's first `null` takes the referencing path's first
+     * index, and so on.
+     *
+     * That positional rule is what makes `{0}` inside `items[1].label` resolve to
+     * `items[1].name` rather than `items[0].name`. Getting it wrong is not a crash — it
+     * quietly attributes one line item's text to another, which on a payment screen means
+     * the user reads a description that belongs to a different amount.
+     *
+     * Indexing [boundIndices] is safe because the caller has already refused any reference
+     * whose wildcard count exceeds its size.
+     */
+    private fun bind(
+        path: List<String?>,
+        boundIndices: List<Int>,
+    ): ResolvedPath {
+        var nullsSeen = 0
+        return path.map { segment ->
+            if (segment == null) PathStep.Index(boundIndices[nullsSeen++]) else PathStep.Key(segment)
         }
-        return node
     }
 
     private companion object {

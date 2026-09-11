@@ -2,8 +2,10 @@ package dev.digitallabor.elpaso.wallet.presentation.txdata.render
 
 import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,7 +120,55 @@ class TemplateInterpolatorTest {
         val payload = buildJsonObject { put("items", JsonPrimitive("x")) }
         assertEquals(
             IncompatibilityReason.Code.TEMPLATE_BAD_REFERENCE,
-            codeOf(ti.interpolate("{0}", claims, payload, Locale.ENGLISH, referencingWildcards = 0)),
+            codeOf(ti.interpolate("{0}", claims, payload, Locale.ENGLISH, boundIndices = emptyList())),
+        )
+    }
+
+    /**
+     * §3: "each `null` in the referenced claim's `path` is resolved to the same array index
+     * as the corresponding `null` in the referencing claim's `path`."
+     *
+     * Asserted directly rather than only through the validator, because the failure is
+     * silent: binding to the wrong index yields a perfectly well-formed sentence that
+     * describes a different array element. On a payment screen that is one line item's
+     * description printed against another's amount.
+     */
+    @Test
+    fun aReferencedWildcardBindsToTheReferencingIndex() {
+        val claims = listOf(claim(listOf("items", null, "name"), null))
+        val payload =
+            buildJsonObject {
+                putJsonArray("items") {
+                    add(buildJsonObject { put("name", JsonPrimitive("first")) })
+                    add(buildJsonObject { put("name", JsonPrimitive("second")) })
+                }
+            }
+        assertEquals(
+            TemplateInterpolator.Outcome.Ok("second"),
+            ti.interpolate("{0}", claims, payload, Locale.ENGLISH, boundIndices = listOf(1)),
+        )
+    }
+
+    /** Outer wildcards bind first, so a two-deep reference takes indices in path order. */
+    @Test
+    fun nestedWildcardsBindOutermostFirst() {
+        val claims = listOf(claim(listOf("a", null, "b", null, "c"), null))
+        val payload =
+            buildJsonObject {
+                putJsonArray("a") {
+                    add(
+                        buildJsonObject {
+                            putJsonArray("b") {
+                                add(buildJsonObject { put("c", JsonPrimitive("a0b0")) })
+                                add(buildJsonObject { put("c", JsonPrimitive("a0b1")) })
+                            }
+                        },
+                    )
+                }
+            }
+        assertEquals(
+            TemplateInterpolator.Outcome.Ok("a0b1"),
+            ti.interpolate("{0}", claims, payload, Locale.ENGLISH, boundIndices = listOf(0, 1)),
         )
     }
 
