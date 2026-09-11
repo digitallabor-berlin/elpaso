@@ -41,6 +41,7 @@ import java.util.Locale
 class TransactionDataValidator(
     private val graphemes: GraphemeCounter = GraphemeCounter.Default,
     private val maxRenderedItems: Int = RenderLimits.MAX_RENDERED_ITEMS,
+    private val templates: TemplateInterpolator = TemplateInterpolator(),
 ) {
     /**
      * @param metadata the issuer-signed `transaction_data_types` entry for [payload]'s type
@@ -65,15 +66,16 @@ class TransactionDataValidator(
         selection: LocaleSelection,
     ): ValidationResult {
         val ui = metadata.uiLabels
+        val ctx = Ctx(metadata.claims, payload, selection.locale)
 
         val title =
-            uiLabel(ui.transactionTitle, RenderLimits.TRANSACTION_TITLE_MAX, "transaction_title", selection)
+            uiLabel(ui.transactionTitle, RenderLimits.TRANSACTION_TITLE_MAX, "transaction_title", selection, ctx)
                 .onBad { return it }
         val affirmative =
-            uiLabel(ui.affirmativeActionLabel, RenderLimits.AFFIRMATIVE_LABEL_MAX, "affirmative_action_label", selection)
+            uiLabel(ui.affirmativeActionLabel, RenderLimits.AFFIRMATIVE_LABEL_MAX, "affirmative_action_label", selection, ctx)
                 .onBad { return it }
         val denial =
-            uiLabel(ui.denialActionLabel, RenderLimits.DENIAL_LABEL_MAX, "denial_action_label", selection)
+            uiLabel(ui.denialActionLabel, RenderLimits.DENIAL_LABEL_MAX, "denial_action_label", selection, ctx)
                 .onBad { return it }
 
         // The hint is the one label the wallet may never reformat: §3.2 requires it be
@@ -100,14 +102,15 @@ class TransactionDataValidator(
             val display = pickDisplay(claim.display, selection) ?: continue
 
             val where = "claim '${claim.path.renderKey()}'"
+            val wildcards = claim.path.wildcardCount()
             val label =
                 display.name?.let { name ->
-                    labelFrom(name, display.displayType, RenderLimits.CLAIM_NAME_MAX, where)
+                    labelFrom(name, display.displayType, RenderLimits.CLAIM_NAME_MAX, where, ctx, wildcards)
                         .onBad { return it }
                 }
 
             val raw = resolve(payload, claim.path.filterNotNull())
-            when (val outcome = valueOutcome(claim, raw, selection.locale, where)) {
+            when (val outcome = valueOutcome(claim, raw, ctx, where, wildcards)) {
                 is ValueOutcome.Bad -> return outcome.reason.asResult()
                 is ValueOutcome.Absent -> Unit // optional claim, no value present: no row, no error
                 is ValueOutcome.Ok -> rows += RenderRow(label = label, value = outcome.value)
@@ -149,14 +152,28 @@ class TransactionDataValidator(
             is LabelOutcome.Bad -> bail(ValidationResult.Incompatible(reason))
         }
 
+    /**
+     * What a template needs to resolve its placeholders: the type's whole `claims` array
+     * (placeholder indices are positions in it), the verifier's payload, and the locale
+     * each referenced value is formatted under.
+     */
+    private data class Ctx(
+        val claims: List<ClaimMetadata>,
+        val payload: JsonObject,
+        val locale: Locale,
+    )
+
     private fun uiLabel(
         entries: List<LocalizedLabel>,
         max: Int,
         where: String,
         selection: LocaleSelection,
+        ctx: Ctx,
     ): LabelOutcome {
         val entry = pickLabel(entries, selection) ?: return LabelOutcome.Ok(null)
-        return labelFrom(entry.value, entry.valueType, max, where)
+        // A ui_labels entry belongs to no claim, so it has no wildcard depth of its own:
+        // it may only reference claims whose paths carry none.
+        return labelFrom(entry.value, entry.valueType, max, where, ctx, wildcards = 0)
     }
 
     /**
@@ -171,6 +188,8 @@ class TransactionDataValidator(
         type: String?,
         max: Int,
         where: String,
+        ctx: Ctx,
+        wildcards: Int,
     ): LabelOutcome {
         if (type != null && type !in ALLOWED_LABEL_TYPES) {
             return LabelOutcome.Bad(
@@ -180,14 +199,41 @@ class TransactionDataValidator(
                 ),
             )
         }
-        characterViolation(text, where)?.let { return LabelOutcome.Bad(it) }
-        lengthViolation(text, max, where)?.let { return LabelOutcome.Bad(it) }
+
+        // §3.3: "For labels whose `value_type` or `display_type` uses the `template:`
+        // prefix, the limits apply to the fully interpolated result." So substitution
+        // happens first and the caps are measured after — a short template that expands
+        // past its cap is just as unrenderable as a long literal one.
+        val resolved =
+            if (type != null && type.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX)) {
+                when (val out = templates.interpolate(text, ctx.claims, ctx.payload, ctx.locale, wildcards)) {
+                    is TemplateInterpolator.Outcome.Ok -> out.text
+                    // A discarded locale entry means "try the next locale". Until §4's
+                    // selection procedure exists there is no next locale to try, so it
+                    // surfaces as no match at all.
+                    is TemplateInterpolator.Outcome.DiscardLocaleEntry ->
+                        return LabelOutcome.Bad(
+                            reason(
+                                IncompatibilityReason.Code.NO_LOCALE_MATCH,
+                                "$where references a claim absent from the payload",
+                            ),
+                        )
+
+                    is TemplateInterpolator.Outcome.Incompatible ->
+                        return LabelOutcome.Bad(reason(out.code, "$where has an invalid template reference"))
+                }
+            } else {
+                text
+            }
+
+        characterViolation(resolved, where)?.let { return LabelOutcome.Bad(it) }
+        lengthViolation(resolved, max, where)?.let { return LabelOutcome.Bad(it) }
 
         val content =
             if (type == MINI_MARKDOWN || type == TEMPLATE_MINI_MARKDOWN) {
-                FormattedText.Markdown(text)
+                FormattedText.Markdown(resolved)
             } else {
-                FormattedText.Plain(text)
+                FormattedText.Plain(resolved)
             }
         return LabelOutcome.Ok(RenderedLabel(content))
     }
@@ -285,9 +331,11 @@ class TransactionDataValidator(
     private fun valueOutcome(
         claim: ClaimMetadata,
         raw: JsonElement?,
-        locale: Locale,
+        ctx: Ctx,
         where: String,
+        wildcards: Int,
     ): ValueOutcome {
+        val locale = ctx.locale
         val declared = claim.valueType
 
         // `label_only` carries its meaning entirely in the label, so it is the one type
@@ -319,8 +367,32 @@ class TransactionDataValidator(
 
         if (raw == null) return ValueOutcome.Absent
 
-        val text = rawText(raw)
+        val isTemplate = declared != null && declared.startsWith(ValueTypeFormatters.TEMPLATE_PREFIX)
         val isString = raw is JsonPrimitive && raw.isString
+
+        // A template's source is the payload value itself, so it must be a string before
+        // there is anything to interpolate. §3: "After interpolation, the result SHALL be
+        // formatted according to the inner `value_type`" — which is why substitution runs
+        // here, before the per-type branch below sees the text.
+        val text =
+            if (isTemplate) {
+                if (!isString) {
+                    return bad(IncompatibilityReason.Code.VALUE_TYPE_MISMATCH, "$where is a template and must be a string")
+                }
+                when (val out = templates.interpolate(rawText(raw), ctx.claims, ctx.payload, locale, wildcards)) {
+                    is TemplateInterpolator.Outcome.Ok -> out.text
+                    is TemplateInterpolator.Outcome.DiscardLocaleEntry ->
+                        return bad(
+                            IncompatibilityReason.Code.NO_LOCALE_MATCH,
+                            "$where references a claim absent from the payload",
+                        )
+
+                    is TemplateInterpolator.Outcome.Incompatible ->
+                        return bad(out.code, "$where has an invalid template reference")
+                }
+            } else {
+                rawText(raw)
+            }
 
         return when (effective) {
             // §3.1: "If omitted, the value is treated as plain text and MUST be a string."
