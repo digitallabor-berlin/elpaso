@@ -1,9 +1,13 @@
 package dev.digitallabor.elpaso.wallet.presentation.txdata.render
 
+import dev.digitallabor.elpaso.wallet.domain.model.ClaimDisplay
 import dev.digitallabor.elpaso.wallet.domain.model.ClaimMetadata
+import dev.digitallabor.elpaso.wallet.domain.model.LocalizedLabel
 import dev.digitallabor.elpaso.wallet.domain.model.TransactionDataTypeMetadata
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Decides whether one `transaction_data` entry is compatible with the credential whose
@@ -39,22 +43,211 @@ class TransactionDataValidator(
     ): ValidationResult {
         structuralViolation(metadata)?.let { return it.asResult() }
         payloadViolation(metadata, payload)?.let { return it.asResult() }
+        return buildPlan(metadata, payload, selection)
+    }
 
-        // Rows, labels and the item count are populated as the later constraints land.
-        // Returning an empty-but-valid plan keeps the type wiring honest in the meantime:
-        // callers already receive the real verdict, just not yet the real content.
+    // --- Plan construction ---
+
+    private fun buildPlan(
+        metadata: TransactionDataTypeMetadata,
+        payload: JsonObject,
+        selection: LocaleSelection,
+    ): ValidationResult {
+        val ui = metadata.uiLabels
+
+        val title =
+            uiLabel(ui.transactionTitle, RenderLimits.TRANSACTION_TITLE_MAX, "transaction_title", selection)
+                .onBad { return it }
+        val affirmative =
+            uiLabel(ui.affirmativeActionLabel, RenderLimits.AFFIRMATIVE_LABEL_MAX, "affirmative_action_label", selection)
+                .onBad { return it }
+        val denial =
+            uiLabel(ui.denialActionLabel, RenderLimits.DENIAL_LABEL_MAX, "denial_action_label", selection)
+                .onBad { return it }
+
+        // The hint is the one label the wallet may never reformat: §3.2 requires it be
+        // displayed exactly as provided, and §3.3 forbids it carrying a `value_type` at
+        // all. It is therefore a plain String in the plan, not a RenderedLabel — there is
+        // no formatting decision left to represent.
+        val hintEntry = pickLabel(ui.securityHint, selection)
+        if (hintEntry != null && hintEntry.valueType != null) {
+            return reason(
+                IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
+                "security_hint must not carry a value_type (found '${hintEntry.valueType}')",
+            ).asResult()
+        }
+        hintEntry?.let { entry ->
+            characterViolation(entry.value, "security_hint")?.let { return it.asResult() }
+            lengthViolation(entry.value, RenderLimits.SECURITY_HINT_MAX, "security_hint")?.let { return it.asResult() }
+        }
+
+        val rows = mutableListOf<RenderRow>()
+        for (claim in metadata.claims) {
+            // §3.1: a claim with no `display` array is an internal value "irrelevant to the
+            // user's consent", so it is not a rendered item and never reaches the screen.
+            if (claim.display.isEmpty()) continue
+            val display = pickDisplay(claim.display, selection) ?: continue
+
+            val where = "claim '${claim.path.renderKey()}'"
+            val label =
+                display.name?.let { name ->
+                    labelFrom(name, display.displayType, RenderLimits.CLAIM_NAME_MAX, where)
+                        .onBad { return it }
+                }
+
+            // Value formatting and conformance are not this task's concern; the raw value
+            // is carried through so the row exists, and the strict value-type pass replaces it.
+            val raw = resolve(payload, claim.path.filterNotNull())
+            rows += RenderRow(label = label, value = RenderedValue.Text(FormattedText.Plain(rawText(raw))))
+        }
+
+        val uiElementCount = listOfNotNull(title, affirmative, denial).size + if (hintEntry != null) 1 else 0
+
         return ValidationResult.Compatible(
             RenderPlan(
-                title = null,
-                rows = emptyList(),
-                securityHint = null,
-                affirmativeLabel = null,
-                denialLabel = null,
+                title = title,
+                rows = rows,
+                securityHint = hintEntry?.value,
+                affirmativeLabel = affirmative,
+                denialLabel = denial,
                 selectedLocaleTag = selection.localeTag,
-                totalItemCount = 0,
+                totalItemCount = rows.size + uiElementCount,
             ),
         )
     }
+
+    // --- Label constraints (paso-proof-metadata.md §3.3) ---
+
+    /** Either a validated label, or the reason it is not one. */
+    private sealed interface LabelOutcome {
+        data class Ok(val label: RenderedLabel?) : LabelOutcome
+
+        data class Bad(val reason: IncompatibilityReason) : LabelOutcome
+    }
+
+    /**
+     * Unwraps a [LabelOutcome], handing a failure to [bail] — which callers use to return
+     * out of the enclosing function. Keeps the happy path free of `when` noise without
+     * losing the failure.
+     */
+    private inline fun LabelOutcome.onBad(bail: (ValidationResult) -> Nothing): RenderedLabel? =
+        when (this) {
+            is LabelOutcome.Ok -> label
+            is LabelOutcome.Bad -> bail(ValidationResult.Incompatible(reason))
+        }
+
+    private fun uiLabel(
+        entries: List<LocalizedLabel>,
+        max: Int,
+        where: String,
+        selection: LocaleSelection,
+    ): LabelOutcome {
+        val entry = pickLabel(entries, selection) ?: return LabelOutcome.Ok(null)
+        return labelFrom(entry.value, entry.valueType, max, where)
+    }
+
+    /**
+     * Applies §3.3 to one label: the formatting type must be text-producing, the text must
+     * avoid the prohibited characters, and it must fit its cap in grapheme clusters.
+     *
+     * Order matters for diagnosis, not for the verdict — an unsupported type is reported
+     * as such even if the text would also have been too long.
+     */
+    private fun labelFrom(
+        text: String,
+        type: String?,
+        max: Int,
+        where: String,
+    ): LabelOutcome {
+        if (type != null && type !in ALLOWED_LABEL_TYPES) {
+            return LabelOutcome.Bad(
+                reason(
+                    IncompatibilityReason.Code.LABEL_UNSUPPORTED_TYPE,
+                    "$where uses label type '$type'; labels must be plain, mini_markdown, or template:mini_markdown",
+                ),
+            )
+        }
+        characterViolation(text, where)?.let { return LabelOutcome.Bad(it) }
+        lengthViolation(text, max, where)?.let { return LabelOutcome.Bad(it) }
+
+        val content =
+            if (type == MINI_MARKDOWN || type == TEMPLATE_MINI_MARKDOWN) {
+                FormattedText.Markdown(text)
+            } else {
+                FormattedText.Plain(text)
+            }
+        return LabelOutcome.Ok(RenderedLabel(content))
+    }
+
+    private fun characterViolation(
+        text: String,
+        where: String,
+    ): IncompatibilityReason? =
+        when {
+            LabelText.hasControlChar(text) ->
+                reason(IncompatibilityReason.Code.LABEL_CONTROL_CHAR, "$where contains a control character")
+            LabelText.hasDirectionalOverride(text) ->
+                reason(
+                    IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
+                    "$where contains a directional embedding or override character",
+                )
+            !LabelText.hasBalancedIsolates(text) ->
+                reason(
+                    IncompatibilityReason.Code.LABEL_DIRECTIONAL_OVERRIDE,
+                    "$where contains an unterminated directional isolate",
+                )
+            else -> null
+        }
+
+    private fun lengthViolation(
+        text: String,
+        max: Int,
+        where: String,
+    ): IncompatibilityReason? {
+        val clusters = graphemes.count(text)
+        return if (clusters > max) {
+            reason(
+                IncompatibilityReason.Code.LABEL_TOO_LONG,
+                "$where is $clusters grapheme clusters, over the $max cap",
+            )
+        } else {
+            null
+        }
+    }
+
+    // --- Locale matching (interim; PaSO View §4 replaces this wholesale) ---
+
+    private fun pickDisplay(
+        entries: List<ClaimDisplay>,
+        selection: LocaleSelection,
+    ): ClaimDisplay? = pickBy(entries, selection) { it.locale }
+
+    private fun pickLabel(
+        entries: List<LocalizedLabel>,
+        selection: LocaleSelection,
+    ): LocalizedLabel? = pickBy(entries, selection) { it.locale }
+
+    /**
+     * Exact tag, then language, then the entry without a locale.
+     *
+     * Deliberately returns null rather than falling back to the first entry: §4 makes "no
+     * match" a real outcome that excludes the credential, and a first-entry fallback would
+     * silently render one locale's label inside another locale's screen.
+     */
+    private fun <T> pickBy(
+        entries: List<T>,
+        selection: LocaleSelection,
+        tagOf: (T) -> String?,
+    ): T? {
+        if (entries.isEmpty()) return null
+        val tag = selection.locale.toLanguageTag()
+        val language = selection.locale.language
+        return entries.firstOrNull { tagOf(it).equals(tag, ignoreCase = true) }
+            ?: entries.firstOrNull { tagOf(it)?.substringBefore('-').equals(language, ignoreCase = true) }
+            ?: entries.firstOrNull { tagOf(it).isNullOrBlank() }
+    }
+
+    private fun rawText(value: JsonElement?): String = (value as? JsonPrimitive)?.contentOrNull.orEmpty()
 
     // --- Structural constraints (paso-proof-metadata.md §3.3) ---
 
@@ -220,5 +413,15 @@ class TransactionDataValidator(
     private companion object {
         const val IMAGE_VALUE_TYPE = "image"
         const val INTEGRITY_SUFFIX = "#integrity"
+        const val MINI_MARKDOWN = "mini_markdown"
+        const val TEMPLATE_MINI_MARKDOWN = "template:mini_markdown"
+
+        /**
+         * §3.3: "A `display` entry's `display_type` and a `ui_labels` entry's `value_type`
+         * MUST be either `mini_markdown` or `template:mini_markdown` ... or absent." The
+         * value types that produce non-textual or standalone content — `image`, `url`,
+         * `label_only` — must never appear on a label.
+         */
+        val ALLOWED_LABEL_TYPES = setOf(MINI_MARKDOWN, TEMPLATE_MINI_MARKDOWN)
     }
 }
