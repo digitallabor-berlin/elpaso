@@ -29,6 +29,7 @@ import dev.digitallabor.elpaso.wallet.presentation.builder.MdocDeviceResponseBui
 import dev.digitallabor.elpaso.wallet.presentation.builder.SdJwtPresentationBuilder
 import dev.digitallabor.elpaso.wallet.presentation.txdata.AdhocTransactionMetadataVerifier
 import dev.digitallabor.elpaso.wallet.presentation.txdata.TransactionMetadataResolver
+import dev.digitallabor.elpaso.wallet.presentation.txdata.render.ImageResolver
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataCompatibilityChecker
 import dev.digitallabor.elpaso.wallet.presentation.txdata.render.TransactionDataValidator
 import dev.digitallabor.elpaso.wallet.session.AppLockManager
@@ -118,7 +119,14 @@ val presentationModule =
         single { AdhocTransactionMetadataVerifier(get(), get(named("cacheOnly"))) }
         single { TransactionMetadataResolver(get(), get()) }
         single { TransactionDataValidator() }
-        single { TransactionDataCompatibilityChecker(get()) }
+        // A dedicated client, never the shared one. `HttpClientFactory.create()` logs full
+        // URLs/headers/bodies, rewrites `/token` errors, follows redirects itself and shares
+        // a 20s timeout — all of which PaSO View §3 forbids pointing at a verifier-named
+        // image host. The configuration lives in ImageResolver.imageFetchClient() so it
+        // cannot drift away from the code whose guarantees depend on it.
+        single(named("imageFetch")) { ImageResolver.imageFetchClient() }
+        single { ImageResolver(get(named("imageFetch"))) }
+        single { TransactionDataCompatibilityChecker(get(), get()) }
         single { SdJwtPresentationBuilder(get()) }
         single { MdocDeviceResponseBuilder(get()) }
         single { PresentationClient(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
